@@ -1,0 +1,14 @@
+{
+  "extends": "stylelint-config-standard",
+  "rules": {
+    "at-rule-no-unknown": [
+      true,
+      {
+        "ignoreAtRules": ["import", "media", "supports", "keyframes"]
+      }
+    ],
+    "indentation": 2,
+    "string-quotes": "double",
+    "no-empty-source": null
+  }
+}
