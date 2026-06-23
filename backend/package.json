@@ -14,7 +14,7 @@
   "devDependencies": {
     "prettier": "^3.0.0",
     "wrangler": "^4.0.0",
-    "miniflare": "^2.26.0"
+    "miniflare": "^4.20260623.0"
   },
   "dependencies": {}
 }
