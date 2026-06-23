@@ -24,3 +24,9 @@ cd backend
 npm install
 npm run dev
 ```
+
+## check
+
+```bash
+fetch('/api/health').then(r=>r.json()).then(j=>console.log('API:', j)).catch(e=>console.error('API error:', e));
+```
