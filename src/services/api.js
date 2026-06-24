@@ -23,11 +23,11 @@ const normalizedUrl = apiBaseUrl.replace(/\/$/, "");
 async function fetchJson(url, options) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃으로 변경
-  
+
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
-    
+
     if (!res.ok) {
       const errorText = await res.text();
       console.error("API error:", url, res.status, res.statusText, errorText);
@@ -36,9 +36,9 @@ async function fetchJson(url, options) {
     return res.json();
   } catch (error) {
     clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
+    if (error.name === "AbortError") {
       console.error("API timeout:", url);
-      throw new Error(`요청 타임아웃: ${url}`);
+      throw new Error(`요청 타임아웃: ${url}`, { cause: error });
     }
     throw error;
   }

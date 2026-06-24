@@ -4,9 +4,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 const isPlaceholder = (value) =>
-  !value ||
-  value.includes("your-supabase-project-id") ||
-  value.includes("your-supabase-anon-key");
+  !value || value.includes("your-supabase-project-id") || value.includes("your-supabase-anon-key");
 
 let supabaseClient;
 

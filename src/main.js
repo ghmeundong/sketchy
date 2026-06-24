@@ -149,7 +149,7 @@ function handlePointerUp(event) {
   event.preventDefault();
   drawing = false;
   lastPoint = null;
-  
+
   // 줄 완료 후 자동 저장 (300ms 지연하여 연속 저장 방지)
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(() => {

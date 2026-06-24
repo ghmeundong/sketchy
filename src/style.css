@@ -49,7 +49,9 @@ p {
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .toolbar button:hover {
@@ -67,7 +69,7 @@ p {
   border-radius: 1rem;
   overflow: hidden;
   background: #fff;
-  box-shadow: 0 20px 50px rgba(17, 24, 39, 0.08);
+  box-shadow: 0 20px 50px rgb(17 24 39 / 8%);
 }
 
 #sketch-canvas {
@@ -97,14 +99,34 @@ p {
   padding: 0;
 }
 
-.palette .color[data-color="#000"] { background: #000; }
-.palette .color[data-color="#ff0000"] { background: #ff0000; }
-.palette .color[data-color="#ff7f00"] { background: #ff7f00; }
-.palette .color[data-color="#ffff00"] { background: #ffff00; }
-.palette .color[data-color="#00ff00"] { background: #00ff00; }
-.palette .color[data-color="#0000ff"] { background: #0000ff; }
-.palette .color[data-color="#8b00ff"] { background: #8b00ff; }
+.palette .color[data-color="#000"] {
+  background: #000;
+}
+
+.palette .color[data-color="#ff0000"] {
+  background: #f00;
+}
+
+.palette .color[data-color="#ff7f00"] {
+  background: #ff7f00;
+}
+
+.palette .color[data-color="#ffff00"] {
+  background: #ff0;
+}
+
+.palette .color[data-color="#00ff00"] {
+  background: #0f0;
+}
+
+.palette .color[data-color="#0000ff"] {
+  background: #00f;
+}
+
+.palette .color[data-color="#8b00ff"] {
+  background: #8b00ff;
+}
 
 #eraser-button.active {
-  box-shadow: 0 0 0 3px rgba(0,0,0,0.08) inset;
+  box-shadow: 0 0 0 3px rgb(0 0 0 / 8%) inset;
 }
