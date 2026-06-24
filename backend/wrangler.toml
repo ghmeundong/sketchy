@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-account_id = "your-cloudflare-account-id"
+account_id = "6657ba2c0937d03cbb1faff70a262649"
 
 [build]
 command = "npm install"
