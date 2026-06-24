@@ -7,8 +7,6 @@
         "ignoreAtRules": ["import", "media", "supports", "keyframes"]
       }
     ],
-    "indentation": 2,
-    "string-quotes": "double",
     "no-empty-source": null
   }
 }

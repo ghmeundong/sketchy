@@ -10,13 +10,6 @@ This template includes a Vite-based frontend, optional Cloudflare Workers backen
 - Optional `backend/` folder for Cloudflare Workers
 - Static asset folder `public/`
 
-## Quick start
-
-```bash
-npm install
-npm run dev
-```
-
 ## Backend
 
 ```bash
@@ -25,8 +18,35 @@ npm install
 npm run dev
 ```
 
-## check
+## frontend
+
+```bash
+npm install
+npm run dev
+```
+
+## api check (brower console)
 
 ```bash
 fetch('/api/health').then(r=>r.json()).then(j=>console.log('API:', j)).catch(e=>console.error('API error:', e));
+```
+
+## linting and Formatting
+
+```bash
+npm run lint
+```
+
+## To automatically fix formatting and style issues, run:
+
+```bash
+npm run lint -- --fix
+# or use prettier directly
+npx prettier --write .
+```
+
+## (optional) node version check for github actions
+
+```bash
+nvm use
 ```
