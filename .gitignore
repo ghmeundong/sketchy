@@ -48,6 +48,3 @@ dist/
 .env.development.local
 .env.test.local
 .env.production.local
-
-# Husky (Automatically generated via npm run prepare)
-.husky/

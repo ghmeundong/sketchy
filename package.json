@@ -13,7 +13,7 @@
     "test:watch": "vitest",
     "lint": "eslint . && stylelint \"src/**/*.css\" \"public/**/*.css\"",
     "format": "prettier --write .",
-    "prepare": "husky && echo 'npx prettier --write .' > .husky/pre-commit && echo 'npm run lint' > .husky/pre-push"
+    "prepare": "husky"
   },
   "lint-staged": {
     "*.js": [

@@ -45,6 +45,21 @@ npm run lint -- --fix
 npx prettier --write .
 ```
 
+## .husky example
+edit the hook files directly under `.husky`.
+
+Example `.husky/pre-commit`:
+
+```sh
+npx prettier --write .
+```
+
+Example `.husky/pre-push`:
+
+```sh
+npm run lint
+```
+
 ## (optional) node version check for github actions
 
 ```bash
