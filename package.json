@@ -15,6 +15,9 @@
     "format": "prettier --write .",
     "prepare": "husky"
   },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0"
+  },
   "lint-staged": {
     "*.js": [
       "eslint --fix",
