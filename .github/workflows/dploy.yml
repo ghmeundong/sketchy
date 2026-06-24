@@ -1,0 +1,40 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ] # 또는 master
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Create .env.production file
+        run: |
+          touch .env.production
+          echo VITE_API_URL=${{ secrets.VITE_API_URL }} >> .env.production
+          echo VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} >> .env.production
+          echo VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} >> .env.production
+          echo CF_ACCOUNT_ID=6657ba2c0937d03cbb1faff70a262649 >> .env.production
+          echo CF_API_TOKEN=${{ secrets.CF_API_TOKEN }} >> .env.production
+          echo SKETCH_DOCUMENT_ID=shared >> .env.production
+
+      - name: Build Project
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
