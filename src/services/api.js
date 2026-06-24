@@ -1,10 +1,14 @@
 const DEFAULT_LOCAL = "http://localhost:8787";
+const DEPLOY_BACKEND_URL = "https://sketchy-backend.ghmeundong.workers.dev"; 
+
 let apiBaseUrl = import.meta.env.VITE_API_URL || DEFAULT_LOCAL;
 
 if (typeof window !== "undefined") {
   const host = window.location.hostname || "";
 
-  if (
+  if (host.endsWith(".github.io")) {
+    apiBaseUrl = DEPLOY_BACKEND_URL;
+  } else if (
     apiBaseUrl === DEFAULT_LOCAL ||
     /localhost/.test(apiBaseUrl) ||
     host.endsWith(".github.dev")
@@ -12,8 +16,6 @@ if (typeof window !== "undefined") {
     if (host.endsWith(".github.dev")) {
       const baseHost = host.replace(/-\d+$/, "").replace(".github.dev", "").replace(".app", "");
       apiBaseUrl = `https://${baseHost}-8787.app.github.dev`;
-    } else if (host.endsWith(".github.io")) {
-      apiBaseUrl = import.meta.env.VITE_API_URL || DEFAULT_LOCAL;
     }
   }
 }
@@ -22,7 +24,7 @@ const normalizedUrl = apiBaseUrl.replace(/\/$/, "");
 
 async function fetchJson(url, options) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃으로 변경
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
 
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
