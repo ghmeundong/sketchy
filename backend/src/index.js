@@ -20,7 +20,6 @@ function errorResponse(message, status = 500) {
 
 async function fetchR2Sketch(env) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const webpKey = `${sketchId}.webp`;
   const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
@@ -28,12 +27,6 @@ async function fetchR2Sketch(env) {
   }
 
   const result = { imageData: null, vector: null };
-
-  const webpObj = await env.SKETCHES_BUCKET.get(webpKey);
-  if (webpObj) {
-    result.imageData = await webpObj.text();
-  }
-
   const jsonObj = await env.SKETCHES_BUCKET.get(jsonKey);
   if (jsonObj) {
     try {
@@ -49,31 +42,22 @@ async function fetchR2Sketch(env) {
 
 async function deleteR2Sketch(env) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const webpKey = `${sketchId}.webp`;
   const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
-  await env.SKETCHES_BUCKET.delete(webpKey);
   await env.SKETCHES_BUCKET.delete(jsonKey);
   return { ok: true };
 }
 
 async function saveR2Sketch(env, sketchPayload) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const webpKey = `${sketchId}.webp`;
   const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
-  }
-
-  if (sketchPayload.imageData && typeof sketchPayload.imageData === "string") {
-    await env.SKETCHES_BUCKET.put(webpKey, sketchPayload.imageData, {
-      httpMetadata: { contentType: "text/plain" },
-    });
   }
 
   if (Array.isArray(sketchPayload.vector)) {
@@ -88,16 +72,16 @@ async function saveR2Sketch(env, sketchPayload) {
 async function handleSketchRequest(request, env) {
   if (request.method === "GET") {
     const doc = await fetchR2Sketch(env);
-    return jsonResponse({ imageData: doc.imageData || null, vector: doc.vector || null });
+    return jsonResponse({ imageData: null, vector: doc.vector || null });
   }
 
   if (request.method === "POST") {
     const body = await request.json().catch(() => null);
-    if (!body || typeof body.imageData !== "string") {
-      return errorResponse("Request body must include imageData string.", 400);
+    if (!body || !Array.isArray(body.vector)) {
+      return errorResponse("Request body must include a vector array.", 400);
     }
 
-    await saveR2Sketch(env, { imageData: body.imageData, vector: body.vector });
+    await saveR2Sketch(env, { vector: body.vector });
     return jsonResponse({ ok: true });
   }
 

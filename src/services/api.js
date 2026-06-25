@@ -52,19 +52,35 @@ export const api = {
     return fetchJson(url);
   },
 
-  saveSketch: async (imageData, vector = null) => {
+  saveSketch: async (_imageData, vector = null) => {
     const url = `${normalizedUrl}/api/sketch`;
-    const body = { imageData };
+    const body = {};
     if (Array.isArray(vector)) {
       body.vector = vector;
     }
-    return fetchJson(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    // Retry transient failures a few times to improve reliability when saving to backend
+    const maxAttempts = 3;
+    let attempt = 0;
+    let lastErr = null;
+    while (attempt < maxAttempts) {
+      try {
+        return await fetchJson(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        lastErr = err;
+        attempt += 1;
+        if (attempt >= maxAttempts) break;
+        const backoff = 200 * Math.pow(2, attempt - 1);
+        console.warn(`saveSketch attempt ${attempt} failed, retrying in ${backoff}ms`, err);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    throw lastErr;
   },
 
   resetSketch: async (secret) => {

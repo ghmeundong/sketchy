@@ -8,6 +8,7 @@ if (!root) throw new Error("Main element not found.");
 root.innerHTML = `
   <div class="canvas-shell">
     <canvas id="sketch-canvas"></canvas>
+    <div id="paper-texture" class="paper-texture"></div>
     <div class="palette" id="palette">
       <div class="palette-row">
         <label for="color-input"></label>
@@ -17,10 +18,10 @@ root.innerHTML = `
         <label for="size-range"></label>
         <input id="size-range" type="range" min="1" max="32" value="4" />
       </div>
-      <div class="palette-row">
-        <button id="replay-button" type="button">재생 ▶</button>
-      </div>
     </div>
+    <button id="replay-button" class="floating-play-button" type="button" aria-label="재생">
+      <span class="play-icon">▶</span>
+    </button>
   </div>
 `;
 
@@ -41,58 +42,140 @@ let canvasHeight = 0;
 let drawing = false;
 let lastPoint = null;
 let paletteDrag = null;
+let buttonDrag = null;
+let buttonDragMoved = false;
 let strokes = [];
+let currentStroke = null; // current stroke being drawn: { type: "stroke", points: [...], c: [...], w: ... }
 let channel = null;
 let saveTimeout = null;
 let replaying = false;
 let lastImageData = null;
 const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
+// Local compaction/caching settings
+const MAX_STROKES = 100; // when exceeded, compact recent strokes
+const MERGE_FROM = 50; // merge strokes from index MERGE_FROM..end into one snapshot
 
 function logStatus(message) {
   console.log(message);
 }
 
-function broadcastStroke(start, end) {
-  const rawColor = ctx.strokeStyle.replace("#", "");
-  const payload = {
-    i: CLIENT_ID,
-    w: Math.round(ctx.lineWidth),
-    c: [
-      parseInt(rawColor.slice(0, 2), 16),
-      parseInt(rawColor.slice(2, 4), 16),
-      parseInt(rawColor.slice(4, 6), 16),
-    ],
-    p: [start.x, start.y, end.x, end.y],
+function getRect(element) {
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left,
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.height,
   };
-  strokes.push({ type: "stroke", start, end, c: payload.c, w: payload.w });
-  if (!channel) return;
-  channel.send({
-    type: "broadcast",
-    event: "draw",
-    payload,
-  });
+}
+
+function rectsIntersect(a, b) {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function resolveCollision(movingEl, otherEl, desiredX, desiredY) {
+  const movingRect = {
+    left: desiredX,
+    top: desiredY,
+    width: movingEl.offsetWidth,
+    height: movingEl.offsetHeight,
+  };
+  movingRect.right = movingRect.left + movingRect.width;
+  movingRect.bottom = movingRect.top + movingRect.height;
+
+  const otherRect = getRect(otherEl);
+  if (!rectsIntersect(movingRect, otherRect)) {
+    return { x: desiredX, y: desiredY };
+  }
+
+  const overlapX = movingRect.right - otherRect.left;
+  const overlapX2 = otherRect.right - movingRect.left;
+  const overlapY = movingRect.bottom - otherRect.top;
+  const overlapY2 = otherRect.bottom - movingRect.top;
+
+  let adjustX = 0;
+  let adjustY = 0;
+  let pushX = 0;
+  let pushY = 0;
+  let minOverlap = Infinity;
+
+  if (overlapX > 0 && overlapX < minOverlap) {
+    minOverlap = overlapX;
+    adjustX = -overlapX;
+    pushX = overlapX;
+    pushY = 0;
+  }
+  if (overlapX2 > 0 && overlapX2 < minOverlap) {
+    minOverlap = overlapX2;
+    adjustX = overlapX2;
+    pushX = -overlapX2;
+    pushY = 0;
+  }
+  if (overlapY > 0 && overlapY < minOverlap) {
+    minOverlap = overlapY;
+    adjustX = 0;
+    adjustY = -overlapY;
+    pushX = 0;
+    pushY = overlapY;
+  }
+  if (overlapY2 > 0 && overlapY2 < minOverlap) {
+    adjustX = 0;
+    adjustY = overlapY2;
+    pushX = 0;
+    pushY = -overlapY2;
+  }
+
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+  const adjustedX = clamp(desiredX + adjustX, 0, windowWidth - movingRect.width);
+  const adjustedY = clamp(desiredY + adjustY, 0, windowHeight - movingRect.height);
+
+  const otherDesiredX = clamp(otherRect.left + pushX, 0, windowWidth - otherRect.width);
+  const otherDesiredY = clamp(otherRect.top + pushY, 0, windowHeight - otherRect.height);
+
+  const triedOther = otherRect.left !== otherDesiredX || otherRect.top !== otherDesiredY;
+  if (triedOther) {
+    otherEl.style.left = `${otherDesiredX}px`;
+    otherEl.style.top = `${otherDesiredY}px`;
+  }
+
+  return { x: adjustedX, y: adjustedY };
 }
 
 function handleRemoteDraw(payload) {
   if (!payload || typeof payload !== "object") return;
   if (payload.i === CLIENT_ID) return;
-  if (!Array.isArray(payload.c) || !Array.isArray(payload.p)) return;
+  if (!Array.isArray(payload.c)) return;
 
-  const segment = {
-    start: { x: payload.p[0], y: payload.p[1] },
-    end: { x: payload.p[2], y: payload.p[3] },
-    color: `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`,
-    width: Number(payload.w) || 1,
-  };
+  const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
+  const width = Number(payload.w) || 1;
 
-  drawLine(segment);
-  strokes.push({
-    type: "stroke",
-    start: segment.start,
-    end: segment.end,
-    c: payload.c,
-    w: payload.w,
-  });
+  // New structure: points array within one stroke object
+  if (Array.isArray(payload.points) && payload.points.length > 0) {
+    // Add to strokes for persistence
+    strokes.push({
+      type: "stroke",
+      points: payload.points,
+      c: payload.c,
+      w: payload.w,
+    });
+
+    // Draw all segments of this stroke
+    for (let i = 0; i < payload.points.length - 1; i++) {
+      drawLine({
+        start: payload.points[i],
+        end: payload.points[i + 1],
+        color,
+        width,
+      });
+    }
+  }
 }
 
 function resizeCanvas() {
@@ -151,6 +234,64 @@ function drawLine({ start, end, color = ctx.strokeStyle, width = ctx.lineWidth }
   ctx.stroke();
 }
 
+function compactStrokes() {
+  if (!Array.isArray(strokes)) return;
+  if (strokes.length <= MAX_STROKES) return;
+
+  // Create offscreen canvas to render the chunk to merge
+  const off = document.createElement("canvas");
+  off.width = canvasWidth;
+  off.height = canvasHeight;
+  const octx = off.getContext("2d");
+  if (!octx) return;
+  octx.fillStyle = "#fff";
+  octx.fillRect(0, 0, off.width, off.height);
+
+  // strokes to merge: MERGE_FROM .. end
+  const toMerge = strokes.slice(MERGE_FROM);
+  for (const ev of toMerge) {
+    if (ev.type === "stroke") {
+      const color = Array.isArray(ev.c)
+        ? `rgb(${ev.c[0]}, ${ev.c[1]}, ${ev.c[2]})`
+        : ev.color || "#000";
+      const width = Number(ev.w ?? ev.width) || 1;
+      octx.strokeStyle = color;
+      octx.lineWidth = width;
+      octx.lineCap = "round";
+
+      // New structure: draw all segments from points array
+      if (Array.isArray(ev.points) && ev.points.length > 0) {
+        for (let i = 0; i < ev.points.length - 1; i++) {
+          octx.beginPath();
+          octx.moveTo(ev.points[i].x, ev.points[i].y);
+          octx.lineTo(ev.points[i + 1].x, ev.points[i + 1].y);
+          octx.stroke();
+        }
+      } else if (ev.start && ev.end) {
+        // Backward compatibility: old start/end structure
+        octx.beginPath();
+        octx.moveTo(ev.start.x, ev.start.y);
+        octx.lineTo(ev.end.x, ev.end.y);
+        octx.stroke();
+      }
+    } else if (ev.type === "clear") {
+      octx.fillStyle = "#fff";
+      octx.fillRect(0, 0, off.width, off.height);
+    }
+  }
+
+  // create a snapshot event (use WebP to reduce size)
+  const imageData = off.toDataURL("image/webp", 0.8);
+  // keep first MERGE_FROM events, append snapshot
+  strokes = strokes.slice(0, MERGE_FROM).concat([{ type: "snapshot", imageData }]);
+  // persist compacted strokes locally
+  try {
+    localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
+  } catch {
+    // ignore
+  }
+}
+
 function disableDrawingMode() {
   replaying = true;
   drawing = false;
@@ -174,6 +315,19 @@ function handlePointerDown(event) {
   event.preventDefault();
   drawing = true;
   lastPoint = getCanvasPoint(event);
+
+  // Start a new stroke and collect points
+  const rawColor = ctx.strokeStyle.replace("#", "");
+  currentStroke = {
+    type: "stroke",
+    points: [lastPoint],
+    c: [
+      parseInt(rawColor.slice(0, 2), 16),
+      parseInt(rawColor.slice(2, 4), 16),
+      parseInt(rawColor.slice(4, 6), 16),
+    ],
+    w: Math.round(ctx.lineWidth),
+  };
 }
 
 function handlePointerMove(event) {
@@ -182,7 +336,12 @@ function handlePointerMove(event) {
   const point = getCanvasPoint(event);
   const segment = { start: lastPoint, end: point, color: ctx.strokeStyle, width: ctx.lineWidth };
   drawLine(segment);
-  broadcastStroke(segment.start, segment.end);
+
+  // Add point to current stroke
+  if (currentStroke) {
+    currentStroke.points.push(point);
+  }
+
   lastPoint = point;
 
   clearTimeout(saveTimeout);
@@ -195,6 +354,27 @@ async function handlePointerUp(event) {
   drawing = false;
   lastPoint = null;
   clearTimeout(saveTimeout);
+
+  // Complete stroke and broadcast/save
+  if (currentStroke && currentStroke.points.length > 0) {
+    strokes.push(currentStroke);
+
+    // Broadcast completed stroke to other clients
+    if (channel) {
+      channel.send({
+        type: "broadcast",
+        event: "draw",
+        payload: {
+          points: currentStroke.points,
+          c: currentStroke.c,
+          w: currentStroke.w,
+          i: CLIENT_ID,
+        },
+      });
+    }
+  }
+
+  currentStroke = null;
   await saveSketch();
 }
 
@@ -209,38 +389,51 @@ function handlePalettePointerDown(event) {
   };
 }
 
+function handleButtonPointerDown(event) {
+  event.preventDefault();
+  replayButton.setPointerCapture(event.pointerId);
+  const rect = replayButton.getBoundingClientRect();
+  buttonDrag = {
+    offsetX: event.clientX - rect.left,
+    offsetY: event.clientY - rect.top,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+    pointerId: event.pointerId,
+  };
+  buttonDragMoved = false;
+}
+
 function handlePalettePointerMove(event) {
-  if (!paletteDrag) return;
-  const x = event.clientX - paletteDrag.offsetX;
-  const y = event.clientY - paletteDrag.offsetY;
-  palette.style.left = `${Math.min(Math.max(0, x), window.innerWidth - palette.offsetWidth)}px`;
-  palette.style.top = `${Math.min(Math.max(0, y), window.innerHeight - palette.offsetHeight)}px`;
+  if (paletteDrag) {
+    const x = event.clientX - paletteDrag.offsetX;
+    const y = event.clientY - paletteDrag.offsetY;
+    const targetX = clamp(x, 0, window.innerWidth - palette.offsetWidth);
+    const targetY = clamp(y, 0, window.innerHeight - palette.offsetHeight);
+    const resolved = resolveCollision(palette, replayButton, targetX, targetY);
+    palette.style.left = `${resolved.x}px`;
+    palette.style.top = `${resolved.y}px`;
+  }
+  if (buttonDrag && event.pointerId === buttonDrag.pointerId) {
+    const dx = event.clientX - buttonDrag.startX;
+    const dy = event.clientY - buttonDrag.startY;
+    if (!buttonDrag.moved && Math.hypot(dx, dy) > 6) {
+      buttonDrag.moved = true;
+      buttonDragMoved = true;
+    }
+    const x = event.clientX - buttonDrag.offsetX;
+    const y = event.clientY - buttonDrag.offsetY;
+    const targetX = clamp(x, 0, window.innerWidth - replayButton.offsetWidth);
+    const targetY = clamp(y, 0, window.innerHeight - replayButton.offsetHeight);
+    const resolved = resolveCollision(replayButton, palette, targetX, targetY);
+    replayButton.style.left = `${resolved.x}px`;
+    replayButton.style.top = `${resolved.y}px`;
+  }
 }
 
 function handlePalettePointerUp() {
   paletteDrag = null;
-}
-
-function restoreLatestWebP() {
-  const imageData = localStorage.getItem("sketchy-canvas") || lastImageData;
-  if (!imageData || typeof imageData !== "string" || !imageData.startsWith("data:image")) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.src = imageData;
-    image.onload = () => {
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
-      logStatus("WebP 이미지 복원 완료");
-      resolve();
-    };
-    image.onerror = () => {
-      logStatus("WebP 이미지 복원 실패");
-      resolve();
-    };
-  });
+  buttonDrag = null;
 }
 
 async function replayDrawing() {
@@ -256,12 +449,39 @@ async function replayDrawing() {
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
   logStatus("재생 시작...");
 
+  const replayStartTime = performance.now();
+  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+  let segmentsThisFrame = 0;
+  let segmentsPerFrame = 1;
+
+  const computeSegmentsPerFrame = () => {
+    const elapsedTime = performance.now() - replayStartTime;
+    const progress = Math.min(1, elapsedTime / 4000);
+    const exponentialProgress = Math.pow(progress, 3);
+    return 1 + Math.floor(exponentialProgress * 14); // 1..15 segments per frame
+  };
+
   for (const event of strokes) {
     if (!replaying) break;
 
     if (event.type === "clear") {
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      continue;
+    }
+
+    if (event.type === "snapshot") {
+      if (typeof event.imageData === "string") {
+        const img = new Image();
+        img.src = event.imageData;
+        await new Promise((resolve) => {
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            resolve();
+          };
+          img.onerror = () => resolve();
+        });
+      }
       continue;
     }
 
@@ -272,70 +492,98 @@ async function replayDrawing() {
       : event.color || ctx.strokeStyle;
     const width = Number(event.w ?? event.width) || 1;
 
-    drawLine({ start: event.start, end: event.end, color, width });
-    await new Promise((resolve) => setTimeout(resolve, 12));
+    if (Array.isArray(event.points) && event.points.length > 0) {
+      for (let i = 0; i < event.points.length - 1; i++) {
+        drawLine({ start: event.points[i], end: event.points[i + 1], color, width });
+        segmentsThisFrame += 1;
+        if (segmentsThisFrame >= segmentsPerFrame) {
+          segmentsThisFrame = 0;
+          segmentsPerFrame = computeSegmentsPerFrame();
+          await nextFrame();
+        }
+      }
+    } else if (event.start && event.end) {
+      drawLine({ start: event.start, end: event.end, color, width });
+      segmentsThisFrame += 1;
+      if (segmentsThisFrame >= segmentsPerFrame) {
+        segmentsThisFrame = 0;
+        segmentsPerFrame = computeSegmentsPerFrame();
+        await nextFrame();
+      }
+    }
   }
 
   replaying = false;
   logStatus("재생 완료");
-  await restoreLatestWebP();
   enableDrawingMode();
 }
 
 async function loadInitialSketch() {
   let data = null;
+  let remoteLoaded = false;
+
   try {
     data = await api.getSketch();
+    remoteLoaded = true;
   } catch (error) {
     console.warn("R2 로드 실패, 로컬 캐시를 시도합니다.", error);
   }
 
-  const imageData = typeof data?.imageData === "string" ? data.imageData : null;
   const vector = Array.isArray(data?.vector) ? data.vector : null;
-
-  if (typeof imageData === "string" && imageData.startsWith("data:image")) {
-    lastImageData = imageData;
-  }
-
-  if (Array.isArray(vector) && vector.length) {
-    strokes = vector.slice();
-  }
-
-  if (typeof imageData === "string" && imageData.startsWith("data:image")) {
-    const image = new Image();
-    image.src = imageData;
-    image.onload = () => {
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
-      console.log("R2에서 WebP 이미지 로드 완료");
-    };
-    image.onerror = () => {
-      console.warn("R2 WebP 이미지 로드 실패");
-    };
-    return;
-  }
-
-  if (Array.isArray(vector) && vector.length) {
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    for (const event of vector) {
-      if (event.type === "stroke") {
-        const color = Array.isArray(event.c)
-          ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
-          : event.color || ctx.strokeStyle;
-        const width = Number(event.w ?? event.width) || 1;
-        drawLine({ start: event.start, end: event.end, color, width });
-      } else if (event.type === "clear") {
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-      }
-    }
-    console.log("R2에서 벡터 그림 로드 완료");
-    return;
-  }
-
   const localImage = localStorage.getItem("sketchy-canvas");
   const localStrokes = localStorage.getItem("sketchy-strokes");
+
+  if (remoteLoaded) {
+    if (Array.isArray(vector) && vector.length) {
+      strokes = vector.slice();
+      localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      for (const event of strokes) {
+        if (event.type === "stroke") {
+          const color = Array.isArray(event.c)
+            ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
+            : event.color || ctx.strokeStyle;
+          const width = Number(event.w ?? event.width) || 1;
+
+          // New structure: draw all segments from points array
+          if (Array.isArray(event.points) && event.points.length > 0) {
+            for (let i = 0; i < event.points.length - 1; i++) {
+              drawLine({ start: event.points[i], end: event.points[i + 1], color, width });
+            }
+          } else if (event.start && event.end) {
+            // Backward compatibility: old start/end structure
+            drawLine({ start: event.start, end: event.end, color, width });
+          }
+        } else if (event.type === "clear") {
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        } else if (event.type === "snapshot" && typeof event.imageData === "string") {
+          const img = new Image();
+          img.src = event.imageData;
+          img.onload = () => ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+        }
+      }
+      console.log("R2에서 벡터 그림 로드 완료");
+      return;
+    }
+
+    // Remote returned no vector. If we have a local cache, prefer it
+    // (avoid overwriting local on refresh when remote temporarily empty).
+    if (localStrokes) {
+      console.log("R2에 그림 없음 — 로컬 캐시 유지");
+      // fall through to local restore below
+      return;
+    }
+
+    // no local cache either — clear canvas state
+    strokes = [];
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    console.log("R2에 저장된 그림이 없습니다. 캔버스를 초기화했습니다.");
+    return;
+  }
+
   if (localImage) {
     lastImageData = localImage;
     const image = new Image();
@@ -362,7 +610,16 @@ async function loadInitialSketch() {
                 ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
                 : event.color || ctx.strokeStyle;
               const width = Number(event.w ?? event.width) || 1;
-              drawLine({ start: event.start, end: event.end, color, width });
+
+              // New structure: draw all segments from points array
+              if (Array.isArray(event.points) && event.points.length > 0) {
+                for (let i = 0; i < event.points.length - 1; i++) {
+                  drawLine({ start: event.points[i], end: event.points[i + 1], color, width });
+                }
+              } else if (event.start && event.end) {
+                // Backward compatibility: old start/end structure
+                drawLine({ start: event.start, end: event.end, color, width });
+              }
             } else if (event.type === "clear") {
               ctx.fillStyle = "#fff";
               ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -383,19 +640,28 @@ async function loadInitialSketch() {
 async function saveSketch() {
   try {
     const imageData = canvas.toDataURL("image/webp", 0.8);
+    lastImageData = imageData;
+    // update local cache
     localStorage.setItem("sketchy-canvas", imageData);
+    // compact strokes locally to avoid unbounded growth
+    compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
-    await api.saveSketch(imageData, strokes);
-    console.log("R2 WebP 저장 완료");
+    // persist vector-only to backend (already compacted)
+    // but strip heavy snapshot imageData to avoid sending large blobs to R2
+    const sanitized = strokes.map((ev) => {
+      if (ev?.type === "snapshot") return { type: "snapshot" };
+      return ev;
+    });
+    await api.saveSketch(null, sanitized);
+    console.log("R2 벡터 저장 완료");
   } catch (error) {
-    console.error("R2 WebP 저장 실패:", error);
+    console.error("R2 벡터 저장 실패:", error);
   }
 }
 
 function sendBeaconSave() {
   if (!navigator.sendBeacon) return;
-  const imageData = canvas.toDataURL("image/webp", 0.8);
-  const payload = JSON.stringify({ imageData, vector: strokes });
+  const payload = JSON.stringify({ vector: strokes });
   const blob = new Blob([payload], { type: "application/json;charset=UTF-8" });
   navigator.sendBeacon(`${API_BASE_URL}/api/sketch`, blob);
 }
@@ -406,6 +672,16 @@ async function initRealtime() {
     channel.on("broadcast", { event: "draw" }, ({ payload }) => {
       if (!payload) return;
       handleRemoteDraw(payload);
+    });
+    channel.on("broadcast", { event: "reset" }, () => {
+      logStatus("리셋 이벤트 수신, 로컬 캐시를 지우고 새로고침합니다.");
+      try {
+        localStorage.removeItem("sketchy-canvas");
+        localStorage.removeItem("sketchy-strokes");
+      } catch {
+        // ignore
+      }
+      window.location.reload();
     });
 
     const { error } = await channel.subscribe();
@@ -432,9 +708,18 @@ canvas.addEventListener("touchmove", handlePointerMove, { passive: false });
 canvas.addEventListener("touchend", handlePointerUp);
 
 palette.addEventListener("pointerdown", handlePalettePointerDown);
+replayButton.addEventListener("pointerdown", handleButtonPointerDown);
 window.addEventListener("pointermove", handlePalettePointerMove);
 window.addEventListener("pointerup", handlePalettePointerUp);
-replayButton.addEventListener("click", replayDrawing);
+replayButton.addEventListener("click", (event) => {
+  if (buttonDragMoved) {
+    buttonDragMoved = false;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  replayDrawing();
+});
 window.addEventListener("beforeunload", sendBeaconSave);
 
 window.resetSketchR2 = async (secret) => {
@@ -444,7 +729,11 @@ window.resetSketchR2 = async (secret) => {
     if (response?.ok) {
       localStorage.removeItem("sketchy-canvas");
       localStorage.removeItem("sketchy-strokes");
-      console.log("Local sketch cache cleared.");
+      logStatus("로컬 캐시가 지워졌습니다. 리셋 이벤트 브로드캐스트를 보냅니다.");
+      if (channel) {
+        channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
+      }
+      window.location.reload();
     }
     return response;
   } catch (error) {
