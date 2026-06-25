@@ -100,7 +100,9 @@ main {
   color: #0f172a;
   background: #f8fafc;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .palette-row button:hover {
