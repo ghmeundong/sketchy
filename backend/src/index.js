@@ -20,31 +20,17 @@ function errorResponse(message, status = 500) {
 
 async function fetchR2Sketch(env) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const pngKey = `${sketchId}.png`;
-  const jsonKey = `${sketchId}.json`;
+  const webpKey = `${sketchId}.webp`;
 
-  // env.SKETCHES_BUCKET is an R2 binding (set in wrangler.toml)
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
   const result = { imageData: null, vector: null };
 
-  const pngObj = await env.SKETCHES_BUCKET.get(pngKey);
-  if (pngObj) {
-    // we store the canvas data URL as text in R2 (data:image/png;base64,...)
-    result.imageData = await pngObj.text();
-  }
-
-  const jsonObj = await env.SKETCHES_BUCKET.get(jsonKey);
-  if (jsonObj) {
-    try {
-      const txt = await jsonObj.text();
-      result.vector = JSON.parse(txt);
-    } catch {
-      // ignore parse errors
-      result.vector = null;
-    }
+  const webpObj = await env.SKETCHES_BUCKET.get(webpKey);
+  if (webpObj) {
+    result.imageData = await webpObj.text();
   }
 
   return result;
@@ -52,23 +38,15 @@ async function fetchR2Sketch(env) {
 
 async function saveR2Sketch(env, sketchPayload) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const pngKey = `${sketchId}.png`;
-  const jsonKey = `${sketchId}.json`;
+  const webpKey = `${sketchId}.webp`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
-  // sketchPayload.imageData is expected to be a data URL (string)
   if (sketchPayload.imageData && typeof sketchPayload.imageData === "string") {
-    await env.SKETCHES_BUCKET.put(pngKey, sketchPayload.imageData, {
+    await env.SKETCHES_BUCKET.put(webpKey, sketchPayload.imageData, {
       httpMetadata: { contentType: "text/plain" },
-    });
-  }
-
-  if (Array.isArray(sketchPayload.vector)) {
-    await env.SKETCHES_BUCKET.put(jsonKey, JSON.stringify(sketchPayload.vector), {
-      httpMetadata: { contentType: "application/json" },
     });
   }
 
@@ -78,16 +56,16 @@ async function saveR2Sketch(env, sketchPayload) {
 async function handleSketchRequest(request, env) {
   if (request.method === "GET") {
     const doc = await fetchR2Sketch(env);
-    return jsonResponse({ imageData: doc.imageData || null, vector: doc.vector || null });
+    return jsonResponse({ imageData: doc.imageData || null });
   }
 
   if (request.method === "POST") {
     const body = await request.json().catch(() => null);
-    if (!body || (typeof body.imageData !== "string" && !Array.isArray(body.vector))) {
-      return errorResponse("Request body must include imageData string or vector array.", 400);
+    if (!body || typeof body.imageData !== "string") {
+      return errorResponse("Request body must include imageData string.", 400);
     }
 
-    await saveR2Sketch(env, { imageData: body.imageData, vector: body.vector });
+    await saveR2Sketch(env, { imageData: body.imageData });
     return jsonResponse({ ok: true });
   }
 

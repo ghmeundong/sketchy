@@ -1,5 +1,5 @@
 const DEFAULT_LOCAL = "http://localhost:8787";
-const DEPLOY_BACKEND_URL = "https://sketchy-backend.ghmeundong.workers.dev"; 
+const DEPLOY_BACKEND_URL = "https://sketchy-backend.ghmeundong.workers.dev";
 
 let apiBaseUrl = import.meta.env.VITE_API_URL || DEFAULT_LOCAL;
 
@@ -52,16 +52,14 @@ export const api = {
     return fetchJson(url);
   },
 
-  saveSketch: async (imageData, vector = null) => {
+  saveSketch: async (imageData) => {
     const url = `${normalizedUrl}/api/sketch`;
-    const body = { imageData };
-    if (vector) body.vector = vector;
     return fetchJson(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ imageData }),
     });
   },
 

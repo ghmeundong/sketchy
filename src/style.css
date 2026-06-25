@@ -5,128 +5,111 @@
 }
 
 body {
+  margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #111;
+  color: #fff;
   font-family:
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  min-height: 100vh;
-  background: #f7f9fc;
-  color: #111;
 }
 
 main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 2rem;
+  height: 100vh;
+  width: 100vw;
 }
 
-h1 {
-  margin-bottom: 1rem;
-}
-
-p {
-  line-height: 1.6;
-}
-
-.app-shell {
-  display: grid;
-  gap: 1rem;
-}
-
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
-}
-
-.toolbar button {
-  border: none;
-  background: #111;
-  color: #fff;
-  padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease;
-}
-
-.toolbar button:hover {
-  background: #333;
-  transform: translateY(-1px);
-}
-
-.status {
-  font-size: 0.95rem;
-  color: #333;
-}
-
-.canvas-wrap {
-  border: 1px solid #d8e2ef;
-  border-radius: 1rem;
+.canvas-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-  background: #fff;
-  box-shadow: 0 20px 50px rgb(17 24 39 / 8%);
 }
 
 #sketch-canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
   display: block;
   touch-action: none;
   background: #fff;
 }
 
 .palette {
-  display: flex;
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  min-width: 220px;
+  background: rgb(15 23 42 / 92%);
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 35%);
+  color: #f8fafc;
+  padding: 0.75rem 1rem;
+  cursor: grab;
+  user-select: none;
+  backdrop-filter: blur(10px);
+}
+
+.palette:active {
+  cursor: grabbing;
+}
+
+.palette-handle {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.palette-row {
+  display: grid;
   gap: 0.5rem;
-  align-items: center;
+  margin-bottom: 0.75rem;
 }
 
-.palette .colors {
-  display: flex;
-  gap: 0.25rem;
+.palette-row:last-child {
+  margin-bottom: 0;
 }
 
-.palette .color {
-  width: 32px;
-  height: 24px;
-  border-radius: 6px;
-  border: 1px solid #ddd;
+.palette-row label {
+  font-size: 0.9rem;
+}
+
+.palette-row input[type="range"],
+.palette-row input[type="color"] {
+  width: 100%;
+  border-radius: 999px;
+  border: none;
+  appearance: none;
+  background: #374151;
+  height: 2rem;
+}
+
+.palette-row input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f8fafc;
   cursor: pointer;
+  border: 2px solid #111827;
+}
+
+.palette-row input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #f8fafc;
+  border: 2px solid #111827;
+}
+
+.palette-row input[type="color"] {
+  height: 2.5rem;
   padding: 0;
-}
-
-.palette .color[data-color="#000"] {
-  background: #000;
-}
-
-.palette .color[data-color="#ff0000"] {
-  background: #f00;
-}
-
-.palette .color[data-color="#ff7f00"] {
-  background: #ff7f00;
-}
-
-.palette .color[data-color="#ffff00"] {
-  background: #ff0;
-}
-
-.palette .color[data-color="#00ff00"] {
-  background: #0f0;
-}
-
-.palette .color[data-color="#0000ff"] {
-  background: #00f;
-}
-
-.palette .color[data-color="#8b00ff"] {
-  background: #8b00ff;
-}
-
-#eraser-button.active {
-  box-shadow: 0 0 0 3px rgb(0 0 0 / 8%) inset;
+  cursor: pointer;
 }
