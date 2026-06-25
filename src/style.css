@@ -45,15 +45,39 @@ main {
   left: 1rem;
   top: 1rem;
   min-width: 220px;
-  background: rgb(15 23 42 / 92%);
-  border: 1px solid rgb(255 255 255 / 12%);
   border-radius: 18px;
-  box-shadow: 0 24px 60px rgb(0 0 0 / 35%);
-  color: #f8fafc;
+  border: none;
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 15%),
+    /* 아주 가까운 경계선 음영 */ 0 2px 3px rgb(0 0 0 / 20%),
+    /* 바닥에 닿은 면의 얇은 그림자 */ 0 4px 8px rgb(0 0 0 / 10%); /* 은은하게 퍼지는 옅은 그림자 */
+
   padding: 0.75rem 1rem;
   cursor: grab;
   user-select: none;
-  backdrop-filter: blur(10px);
+
+  /* --- 나무 이미지 텍스쳐 적용 --- */
+
+  /* 이미지가 로딩되기 전이나 공백을 채워줄 베이스 색상 */
+  background-color: #8a5a36;
+
+  /* public 폴더 기준 루트(/) 경로로 이미지를 불러옵니다 */
+  background-image: url("/img/realistic-wood-texture-background_23-2149221129.avif");
+
+  /* 이미지가 찌그러지지 않고 팔레트 크기에 꽉 차게 조절 */
+  background-size: cover;
+
+  /* 이미지가 반복되지 않도록 설정 */
+  background-repeat: no-repeat;
+
+  /* 나뭇결의 예쁜 부분이 중심에 오도록 배치 */
+  background-position: center;
+
+  /* ------------------------------ */
+
+  /* 글자색 및 그림자 (나무 위에서 잘 보이도록 유지) */
+  color: #f8fafc;
+  text-shadow: 1px 1px 3px rgb(0 0 0 / 80%);
 }
 
 .palette:active {
@@ -80,56 +104,118 @@ main {
   font-size: 0.9rem;
 }
 
-.palette-row input[type="range"],
-.palette-row input[type="color"] {
+/* 96번 줄부터 123번 줄까지를 이 코드로 덮어쓰기 하세요 */
+.palette-row input[type="range"] {
   width: 100%;
   border-radius: 999px;
   border: none;
   appearance: none;
-  background: #374151;
+  background: transparent;
   height: 2rem;
-}
-
-.palette-row button {
-  width: 100%;
-  border: none;
-  border-radius: 999px;
-  padding: 0.9rem 1rem;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #0f172a;
-  background: #f8fafc;
   cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease;
 }
 
-.palette-row button:hover {
-  transform: translateY(-1px);
-  background: #e2e8f0;
+.palette-row input[type="color"] {
+  appearance: none;
+  width: 100%;
+  height: 2.5rem; /* 아래쪽 중복 선언되었던 높이로 통일 */
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  box-sizing: border-box;
+
+  /* 🪵 배경에 나무 텍스처 적용 */
+  background-image: url("/public/img/canva-light-wood-grain-texture-background-MAHBsoUATrA.jpg");
+  background-size: cover;
+  background-position: center;
+
+  /* 내부 물감이 살짝 안쪽으로 들어가도록 여백 및 내부 음영 생성 */
+  padding: 4px;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 40%); 
 }
 
+/* 컬러 피커 내부 물감 영역 스타일 */
+.palette-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.palette-row input[type="color"]::-webkit-color-swatch {
+  border: none; /* 요청하신 대로 테두리 완전 제거 */
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%); /* 물감이 살짝 볼록한 느낌 */
+}
+
+.palette-row input[type="color"]::-moz-color-swatch {
+  border: none; /* 요청하신 대로 테두리 완전 제거 */
+  border-radius: 999px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+}
+
+
+
+/* ==========================================
+   🪵 3. 슬라이드 길(트랙) 스타일
+   ========================================== */
+
+/* Chrome, Safari, Edge, Opera용 */
+.palette-row input[type="range"]::-webkit-slider-runnable-track {
+  height: 12px;
+  border-radius: 999px;
+  border: none;
+
+  /* 🪵 나무 텍스처 배경 적용 */
+  background-image: url("/public/img/canva-light-wood-grain-texture-background-MAHBsoUATrA.jpg");
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 40%); /* 안으로 파인 듯한 음영 */
+}
+
+/* Firefox용 */
+.palette-row input[type="range"]::-moz-range-track {
+  height: 12px;
+  border-radius: 999px;
+  border: none;
+  background-image: url("/public/img/canva-light-wood-grain-texture-background-MAHBsoUATrA.jpg");
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 40%);
+}
+
+
+/* ==========================================
+   🪵 4. 동그란 손잡이(Thumb) 스타일
+   ========================================== */
+
+/* Chrome, Safari, Edge, Opera용 */
 .palette-row input[type="range"]::-webkit-slider-thumb {
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: #f8fafc;
+  border: none; /* 경계선 제거 */
+
+  /* 🪵 realistic-wood 질감 적용 */
+  background-image: url("/public/img/realistic-wood-texture-background_23-2149221129.avif");
+  background-size: cover;
+  background-position: center;
+
+  /* 수직 정렬 정중앙 맞춤 */
+  margin-top: -5px;
+
+  /* 입체감을 위한 그림자 */
+  box-shadow: 0 2px 5px rgb(0 0 0 / 50%);
   cursor: pointer;
-  border: 2px solid #111827;
 }
 
+/* Firefox용 */
 .palette-row input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  background: #f8fafc;
-  border: 2px solid #111827;
-}
-
-.palette-row input[type="color"] {
-  height: 2.5rem;
-  padding: 0;
+  border: none;
+  background-image: url("/public/img/realistic-wood-texture-background_23-2149221129.avif");
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 2px 5px rgb(0 0 0 / 50%);
   cursor: pointer;
 }

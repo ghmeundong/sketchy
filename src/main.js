@@ -9,13 +9,12 @@ root.innerHTML = `
   <div class="canvas-shell">
     <canvas id="sketch-canvas"></canvas>
     <div class="palette" id="palette">
-      <div class="palette-handle">팔레트</div>
       <div class="palette-row">
-        <label for="color-input">RGB 색상</label>
+        <label for="color-input"></label>
         <input id="color-input" type="color" value="#111111" />
       </div>
       <div class="palette-row">
-        <label for="size-range">브러시 두께</label>
+        <label for="size-range"></label>
         <input id="size-range" type="range" min="1" max="32" value="4" />
       </div>
       <div class="palette-row">
