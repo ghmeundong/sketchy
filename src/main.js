@@ -8,20 +8,19 @@ if (!root) throw new Error("Main element not found.");
 root.innerHTML = `
   <section class="app-shell">
     <h1>Sketchy Board</h1>
-    <p>MongoDB에서 초기 그림을 불러오고, Supabase 실시간 채널로 모든 사용자의 낙서를 공유합니다.</p>
     <div class="toolbar">
         <div class="palette">
-          <label>색상:</label>
+          <label>colors:</label>
           <div class="colors">
-            <button class="color" data-color="#000">검정</button>
-            <button class="color" data-color="#ff0000">빨강</button>
-            <button class="color" data-color="#ff7f00">주황</button>
-            <button class="color" data-color="#ffff00">노랑</button>
-            <button class="color" data-color="#00ff00">초록</button>
-            <button class="color" data-color="#0000ff">파랑</button>
-            <button class="color" data-color="#8b00ff">보라</button>
+            <button class="color" data-color="#000"></button>
+            <button class="color" data-color="#ff0000"></button>
+            <button class="color" data-color="#ff7f00"></button>
+            <button class="color" data-color="#ffff00"></button>
+            <button class="color" data-color="#00ff00"></button>
+            <button class="color" data-color="#0000ff"></button>
+            <button class="color" data-color="#8b00ff"></button>
           </div>
-          <label>두께:</label>
+          <label>thickness</label>
           <input id="size-range" type="range" min="1" max="32" value="4" />
           <button id="eraser-button" type="button">지우개</button>
         </div>
