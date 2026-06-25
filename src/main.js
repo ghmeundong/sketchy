@@ -18,6 +18,9 @@ root.innerHTML = `
         <label for="size-range">브러시 두께</label>
         <input id="size-range" type="range" min="1" max="32" value="4" />
       </div>
+      <div class="palette-row">
+        <button id="replay-button" type="button">재생 ▶</button>
+      </div>
     </div>
   </div>
 `;
@@ -25,9 +28,10 @@ root.innerHTML = `
 const canvas = document.querySelector("#sketch-canvas");
 const colorInput = document.querySelector("#color-input");
 const sizeRange = document.querySelector("#size-range");
+const replayButton = document.querySelector("#replay-button");
 const palette = document.querySelector("#palette");
 
-if (!canvas || !colorInput || !sizeRange || !palette) {
+if (!canvas || !colorInput || !sizeRange || !replayButton || !palette) {
   throw new Error("UI 요소를 찾을 수 없습니다.");
 }
 
@@ -41,6 +45,8 @@ let paletteDrag = null;
 let strokes = [];
 let channel = null;
 let saveTimeout = null;
+let replaying = false;
+let lastImageData = null;
 const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
 
 function logStatus(message) {
@@ -146,14 +152,33 @@ function drawLine({ start, end, color = ctx.strokeStyle, width = ctx.lineWidth }
   ctx.stroke();
 }
 
+function disableDrawingMode() {
+  replaying = true;
+  drawing = false;
+  lastPoint = null;
+  canvas.style.pointerEvents = "none";
+  colorInput.disabled = true;
+  sizeRange.disabled = true;
+  replayButton.disabled = true;
+}
+
+function enableDrawingMode() {
+  replaying = false;
+  canvas.style.pointerEvents = "auto";
+  colorInput.disabled = false;
+  sizeRange.disabled = false;
+  replayButton.disabled = false;
+}
+
 function handlePointerDown(event) {
+  if (replaying) return;
   event.preventDefault();
   drawing = true;
   lastPoint = getCanvasPoint(event);
 }
 
 function handlePointerMove(event) {
-  if (!drawing || !lastPoint) return;
+  if (replaying || !drawing || !lastPoint) return;
   event.preventDefault();
   const point = getCanvasPoint(event);
   const segment = { start: lastPoint, end: point, color: ctx.strokeStyle, width: ctx.lineWidth };
@@ -166,7 +191,7 @@ function handlePointerMove(event) {
 }
 
 async function handlePointerUp(event) {
-  if (!drawing) return;
+  if (replaying || !drawing) return;
   event.preventDefault();
   drawing = false;
   lastPoint = null;
@@ -175,7 +200,8 @@ async function handlePointerUp(event) {
 }
 
 function handlePalettePointerDown(event) {
-  if (event.target.nodeName === "INPUT") return;
+  const tagName = event.target.nodeName;
+  if (tagName === "INPUT" || tagName === "BUTTON" || event.target.closest("button")) return;
   palette.setPointerCapture(event.pointerId);
   const rect = palette.getBoundingClientRect();
   paletteDrag = {
@@ -196,6 +222,67 @@ function handlePalettePointerUp() {
   paletteDrag = null;
 }
 
+function restoreLatestWebP() {
+  const imageData = localStorage.getItem("sketchy-canvas") || lastImageData;
+  if (!imageData || typeof imageData !== "string" || !imageData.startsWith("data:image")) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.src = imageData;
+    image.onload = () => {
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
+      logStatus("WebP 이미지 복원 완료");
+      resolve();
+    };
+    image.onerror = () => {
+      logStatus("WebP 이미지 복원 실패");
+      resolve();
+    };
+  });
+}
+
+async function replayDrawing() {
+  console.log("replay clicked", { replaying, strokesLength: strokes.length });
+  if (replaying) return;
+  if (!strokes.length) {
+    logStatus("재생할 기록이 없습니다.");
+    return;
+  }
+
+  disableDrawingMode();
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  logStatus("재생 시작...");
+
+  for (const event of strokes) {
+    if (!replaying) break;
+
+    if (event.type === "clear") {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      continue;
+    }
+
+    if (event.type !== "stroke") continue;
+
+    const color = Array.isArray(event.c)
+      ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
+      : event.color || ctx.strokeStyle;
+    const width = Number(event.w ?? event.width) || 1;
+
+    drawLine({ start: event.start, end: event.end, color, width });
+    await new Promise((resolve) => setTimeout(resolve, 12));
+  }
+
+  replaying = false;
+  logStatus("재생 완료");
+  await restoreLatestWebP();
+  enableDrawingMode();
+}
+
 async function loadInitialSketch() {
   let data = null;
   try {
@@ -206,6 +293,14 @@ async function loadInitialSketch() {
 
   const imageData = typeof data?.imageData === "string" ? data.imageData : null;
   const vector = Array.isArray(data?.vector) ? data.vector : null;
+
+  if (typeof imageData === "string" && imageData.startsWith("data:image")) {
+    lastImageData = imageData;
+  }
+
+  if (Array.isArray(vector) && vector.length) {
+    strokes = vector.slice();
+  }
 
   if (typeof imageData === "string" && imageData.startsWith("data:image")) {
     const image = new Image();
@@ -224,7 +319,6 @@ async function loadInitialSketch() {
   if (Array.isArray(vector) && vector.length) {
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    strokes = vector.slice();
     for (const event of vector) {
       if (event.type === "stroke") {
         const color = Array.isArray(event.c)
@@ -244,6 +338,7 @@ async function loadInitialSketch() {
   const localImage = localStorage.getItem("sketchy-canvas");
   const localStrokes = localStorage.getItem("sketchy-strokes");
   if (localImage) {
+    lastImageData = localImage;
     const image = new Image();
     image.src = localImage;
     image.onload = () => {
@@ -251,6 +346,34 @@ async function loadInitialSketch() {
       ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
       console.log("로컬 저장소에서 이미지 복원 완료");
     };
+  }
+
+  if (localStrokes) {
+    try {
+      const parsed = JSON.parse(localStrokes);
+      if (Array.isArray(parsed) && parsed.length) {
+        strokes = parsed;
+        console.log("로컬 저장소에서 벡터 복원 완료");
+        if (!localImage) {
+          ctx.fillStyle = "#fff";
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          for (const event of strokes) {
+            if (event.type === "stroke") {
+              const color = Array.isArray(event.c)
+                ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
+                : event.color || ctx.strokeStyle;
+              const width = Number(event.w ?? event.width) || 1;
+              drawLine({ start: event.start, end: event.end, color, width });
+            } else if (event.type === "clear") {
+              ctx.fillStyle = "#fff";
+              ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   if (!localImage && !localStrokes) {
@@ -262,7 +385,8 @@ async function saveSketch() {
   try {
     const imageData = canvas.toDataURL("image/webp", 0.8);
     localStorage.setItem("sketchy-canvas", imageData);
-    await api.saveSketch(imageData);
+    localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
+    await api.saveSketch(imageData, strokes);
     console.log("R2 WebP 저장 완료");
   } catch (error) {
     console.error("R2 WebP 저장 실패:", error);
@@ -272,7 +396,7 @@ async function saveSketch() {
 function sendBeaconSave() {
   if (!navigator.sendBeacon) return;
   const imageData = canvas.toDataURL("image/webp", 0.8);
-  const payload = JSON.stringify({ imageData });
+  const payload = JSON.stringify({ imageData, vector: strokes });
   const blob = new Blob([payload], { type: "application/json;charset=UTF-8" });
   navigator.sendBeacon(`${API_BASE_URL}/api/sketch`, blob);
 }
@@ -311,4 +435,21 @@ canvas.addEventListener("touchend", handlePointerUp);
 palette.addEventListener("pointerdown", handlePalettePointerDown);
 window.addEventListener("pointermove", handlePalettePointerMove);
 window.addEventListener("pointerup", handlePalettePointerUp);
+replayButton.addEventListener("click", replayDrawing);
 window.addEventListener("beforeunload", sendBeaconSave);
+
+window.resetSketchR2 = async (secret) => {
+  try {
+    const response = await api.resetSketch(secret);
+    console.log("resetSketchR2 response:", response);
+    if (response?.ok) {
+      localStorage.removeItem("sketchy-canvas");
+      localStorage.removeItem("sketchy-strokes");
+      console.log("Local sketch cache cleared.");
+    }
+    return response;
+  } catch (error) {
+    console.error("resetSketchR2 failed:", error);
+    throw error;
+  }
+};

@@ -21,6 +21,7 @@ function errorResponse(message, status = 500) {
 async function fetchR2Sketch(env) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
   const webpKey = `${sketchId}.webp`;
+  const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
@@ -33,12 +34,37 @@ async function fetchR2Sketch(env) {
     result.imageData = await webpObj.text();
   }
 
+  const jsonObj = await env.SKETCHES_BUCKET.get(jsonKey);
+  if (jsonObj) {
+    try {
+      const txt = await jsonObj.text();
+      result.vector = JSON.parse(txt);
+    } catch {
+      result.vector = null;
+    }
+  }
+
   return result;
+}
+
+async function deleteR2Sketch(env) {
+  const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
+  const webpKey = `${sketchId}.webp`;
+  const jsonKey = `${sketchId}.json`;
+
+  if (!env?.SKETCHES_BUCKET) {
+    throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
+  }
+
+  await env.SKETCHES_BUCKET.delete(webpKey);
+  await env.SKETCHES_BUCKET.delete(jsonKey);
+  return { ok: true };
 }
 
 async function saveR2Sketch(env, sketchPayload) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
   const webpKey = `${sketchId}.webp`;
+  const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
@@ -50,13 +76,19 @@ async function saveR2Sketch(env, sketchPayload) {
     });
   }
 
+  if (Array.isArray(sketchPayload.vector)) {
+    await env.SKETCHES_BUCKET.put(jsonKey, JSON.stringify(sketchPayload.vector), {
+      httpMetadata: { contentType: "application/json" },
+    });
+  }
+
   return { ok: true };
 }
 
 async function handleSketchRequest(request, env) {
   if (request.method === "GET") {
     const doc = await fetchR2Sketch(env);
-    return jsonResponse({ imageData: doc.imageData || null });
+    return jsonResponse({ imageData: doc.imageData || null, vector: doc.vector || null });
   }
 
   if (request.method === "POST") {
@@ -65,7 +97,7 @@ async function handleSketchRequest(request, env) {
       return errorResponse("Request body must include imageData string.", 400);
     }
 
-    await saveR2Sketch(env, { imageData: body.imageData });
+    await saveR2Sketch(env, { imageData: body.imageData, vector: body.vector });
     return jsonResponse({ ok: true });
   }
 
@@ -75,11 +107,40 @@ async function handleSketchRequest(request, env) {
   });
 }
 
+async function handleResetRequest(request, env) {
+  if (request.method !== "POST") {
+    return new Response(null, {
+      status: 405,
+      headers: CORS_HEADERS,
+    });
+  }
+
+  const body = await request.json().catch(() => null);
+  const expectedToken = env?.SKETCH_RESET_TOKEN;
+  if (!expectedToken) {
+    return errorResponse("Reset token is not configured.", 500);
+  }
+  if (!body || typeof body.secret !== "string" || body.secret !== expectedToken) {
+    return errorResponse("Invalid reset secret.", 403);
+  }
+
+  await deleteR2Sketch(env);
+  return jsonResponse({ ok: true, message: "R2 sketch storage reset." });
+}
+
 async function handleRequest(request, env) {
   const url = new URL(request.url);
 
   if (url.pathname === "/api/health") {
     return jsonResponse({ ok: true, timestamp: new Date().toISOString() });
+  }
+
+  if (url.pathname === "/api/sketch/reset") {
+    try {
+      return await handleResetRequest(request, env);
+    } catch (error) {
+      return errorResponse(error.message || "Failed to reset sketch storage.");
+    }
   }
 
   if (url.pathname === "/api/sketch") {

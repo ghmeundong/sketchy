@@ -52,14 +52,29 @@ export const api = {
     return fetchJson(url);
   },
 
-  saveSketch: async (imageData) => {
+  saveSketch: async (imageData, vector = null) => {
     const url = `${normalizedUrl}/api/sketch`;
+    const body = { imageData };
+    if (Array.isArray(vector)) {
+      body.vector = vector;
+    }
     return fetchJson(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ imageData }),
+      body: JSON.stringify(body),
+    });
+  },
+
+  resetSketch: async (secret) => {
+    const url = `${normalizedUrl}/api/sketch/reset`;
+    return fetchJson(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ secret }),
     });
   },
 

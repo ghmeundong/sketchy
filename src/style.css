@@ -90,6 +90,24 @@ main {
   height: 2rem;
 }
 
+.palette-row button {
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 0.9rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.palette-row button:hover {
+  transform: translateY(-1px);
+  background: #e2e8f0;
+}
+
 .palette-row input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   width: 18px;
