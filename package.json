@@ -1,5 +1,5 @@
 {
-  "name": "template-project",
+  "name": "sketchy",
   "private": true,
   "version": "0.1.0",
   "homepage": "https://ghmeundong.github.io/sketchy",
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
+    "roughjs": "^4.6.6",
     "sharp": "^0.32.0"
   },
   "lint-staged": {
