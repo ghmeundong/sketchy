@@ -1,4 +1,4 @@
-//localStorage.clear(); window.location.reload(); 로컬 테스트 시 초기
+// localStorage.clear(); window.location.reload(); 로컬 테스트 시 초기
 
 import "./style.css";
 import { api, API_BASE_URL } from "./services/api.js";
@@ -31,6 +31,7 @@ root.innerHTML = `
     </button>
     <div id="loading-overlay" class="loading-overlay">
       <p>Loading doodles from R2...</p>
+      <canvas id="loading-spinner-canvas" width="60" height="60"></canvas>
     </div>
   </div>
 `;
@@ -66,6 +67,12 @@ const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
 
 const MAX_STROKES = 100;
 const MERGE_FROM = 50;
+
+const MODE_SETTINGS = {
+  pencil: { min: 1, max: 8, default: 2 },
+  crayon: { min: 4, max: 24, default: 10 },
+  brush: { min: 2, max: 100, default: 25 },
+};
 
 function logStatus(message) {
   console.log(message);
@@ -168,8 +175,9 @@ function resizeCanvas() {
   canvas.style.width = `${canvasWidth}px`;
   canvas.style.height = `${canvasHeight}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  
+  // 페이퍼 텍스처(배경)가 보이도록 캔버스를 지우는 방식으로 변경 (필요시 #fff로 채우셔도 무방합니다)
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 }
 
 function preserveCanvasResize() {
@@ -188,7 +196,6 @@ colorInput.addEventListener("input", (event) => {
   logStatus(`색상 변경: ${event.target.value}`);
 });
 
-// 기존 코드 변경
 sizeRange.addEventListener("input", (event) => {
   let value = Number(event.target.value);
 
@@ -212,12 +219,6 @@ function getCanvasPoint(event) {
   };
 }
 
-const MODE_SETTINGS = {
-  pencil: { min: 1, max: 8, default: 2 },
-  crayon: { min: 4, max: 24, default: 10 },
-  brush: { min: 2, max: 100, default: 25 },
-};
-
 document.querySelectorAll(".mode-btn").forEach((btn) => {
   btn.addEventListener("click", (e) => {
     document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
@@ -234,7 +235,6 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
       ctx.lineWidth = settings.default;
       logStatus(`브러시 두께 자동 조절: ${settings.default}`);
     }
-    // =========================================================
   });
 });
 
@@ -313,8 +313,8 @@ function compactStrokes() {
   off.height = canvasHeight;
   const octx = off.getContext("2d");
   if (!octx) return;
-  octx.fillStyle = "#fff";
-  octx.fillRect(0, 0, off.width, off.height);
+  
+  octx.clearRect(0, 0, off.width, off.height);
 
   const toMerge = strokes.slice(MERGE_FROM);
   for (const ev of toMerge) {
@@ -356,8 +356,7 @@ function compactStrokes() {
         }
       }
     } else if (ev.type === "clear") {
-      octx.fillStyle = "#fff";
-      octx.fillRect(0, 0, off.width, off.height);
+      octx.clearRect(0, 0, off.width, off.height);
     }
   }
 
@@ -415,8 +414,8 @@ function handlePointerMove(event) {
   const segment = {
     start: lastPoint,
     end: point,
-    color: colorInput.value, // ctx.strokeStyle 대신 DOM value를 직접 가리켜 확실히 정의
-    width: Number(sizeRange.value), // sizeRange의 값을 직접 가리켜 확실히 정의
+    color: colorInput.value,
+    width: Number(sizeRange.value),
     mode: currentMode,
   };
   drawLine(segment);
@@ -449,6 +448,7 @@ function handlePointerMove(event) {
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveSketch, 150);
 }
+
 async function handlePointerUp(event) {
   if (replaying || !drawing) return;
   event.preventDefault();
@@ -544,8 +544,7 @@ async function replayDrawing() {
   }
 
   disableDrawingMode();
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
   logStatus("재생 시작...");
 
   const replayStartTime = performance.now();
@@ -564,8 +563,7 @@ async function replayDrawing() {
     if (!replaying) break;
 
     if (event.type === "clear") {
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       continue;
     }
 
@@ -629,8 +627,7 @@ async function loadInitialSketch() {
     if (Array.isArray(vector) && vector.length) {
       strokes = vector.slice();
       localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       for (const event of strokes) {
         if (event.type === "stroke") {
           const color = Array.isArray(event.c)
@@ -645,8 +642,7 @@ async function loadInitialSketch() {
             }
           }
         } else if (event.type === "clear") {
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         } else if (event.type === "snapshot" && typeof event.imageData === "string") {
           const img = new Image();
           img.src = event.imageData;
@@ -663,8 +659,7 @@ async function loadInitialSketch() {
     }
 
     strokes = [];
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     console.log("R2에 저장된 그림이 없습니다. 캔버스를 초기화했습니다.");
     return;
   }
@@ -686,8 +681,7 @@ async function loadInitialSketch() {
         strokes = parsed;
         console.log("로컬 저장소에서 벡터 복원 완료");
         if (!localImage) {
-          ctx.fillStyle = "#fff";
-          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
           for (const event of strokes) {
             if (event.type === "stroke") {
               const color = Array.isArray(event.c)
@@ -708,8 +702,7 @@ async function loadInitialSketch() {
                 }
               }
             } else if (event.type === "clear") {
-              ctx.fillStyle = "#fff";
-              ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+              ctx.clearRect(0, 0, canvasWidth, canvasHeight);
             }
           }
         }
@@ -748,14 +741,12 @@ async function initRealtime() {
   try {
     channel = supabase.channel("sketchy-board");
 
-    // [기존 리스너] - 최종 stroke 저장용 (그림 로드가 이미 되었다면 무시하거나 strokes 배열 백업용으로 사용 가능)
     channel.on("broadcast", { event: "draw" }, ({ payload }) => {
       if (!payload) return;
       if (payload.i === CLIENT_ID) return;
 
       handleRemoteDraw(payload);
 
-      // 실시간으로 이미 그렸으므로, strokes 데이터 배열에만 추가해주고 그림은 다시 그리지 않도록 handleRemoteDraw 내부를 조절하거나 분리
       if (Array.isArray(payload.points)) {
         strokes.push({
           type: "stroke",
@@ -767,7 +758,6 @@ async function initRealtime() {
       }
     });
 
-    // [추가 리스ner] - 실시간 드로잉 표현용
     channel.on("broadcast", { event: "draw_step" }, ({ payload }) => {
       handleRemoteDraw(payload);
     });
@@ -794,7 +784,6 @@ async function initRealtime() {
     console.error("Supabase 초기화 오류", error);
   }
 }
-document.querySelector(`[data-mode="${currentMode}"]`)?.click();
 
 function drawSketchySpinner() {
   const spinCanvas = document.querySelector("#loading-spinner-canvas");
@@ -813,7 +802,6 @@ function drawSketchySpinner() {
     sctx.rotate((angle * Math.PI) / 180);
 
     src.circle(0, 0, 20, {
-      // 캔버스 크기(60x60)에 맞게 반지름을 20으로 조절
       stroke: "#555",
       strokeWidth: 3,
       fillStyle: "solid",
@@ -841,21 +829,41 @@ async function initApp() {
   let spinnerInstance = null;
 
   try {
-    // 로딩 시작할 때 스케치 스피너 가동
     spinnerInstance = drawSketchySpinner();
-
-    // R2 및 로컬 캐시에서 기존 스케치 데이터를 불러옴
     await loadInitialSketch();
-
-    // 실시간 소켓 채널 연결
     await initRealtime();
+    
+    // 이벤트 리스너를 initApp 내부/완료 시점에 바인딩하여 캔버스 조작 시점과 충돌 방지
+    canvas.addEventListener("pointerdown", handlePointerDown);
+    canvas.addEventListener("pointermove", handlePointerMove);
+    canvas.addEventListener("pointerup", handlePointerUp);
+    canvas.addEventListener("pointerleave", handlePointerUp);
+    canvas.addEventListener("touchstart", handlePointerDown, { passive: false });
+    canvas.addEventListener("touchmove", handlePointerMove, { passive: false });
+    canvas.addEventListener("touchend", handlePointerUp);
 
-    // 데이터 로드가 완전히 끝난 후 초기 모드(pencil) 활성화
+    palette.addEventListener("pointerdown", handlePalettePointerDown);
+    replayButton.addEventListener("pointerdown", handleButtonPointerDown);
+    window.addEventListener("pointermove", handlePalettePointerMove);
+    window.addEventListener("pointerup", handlePalettePointerUp);
+    
+    replayButton.addEventListener("click", (event) => {
+      if (buttonDragMoved) {
+        buttonDragMoved = false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      replayDrawing();
+    });
+    
+    window.addEventListener("beforeunload", sendBeaconSave);
+
+    // 초기 모드 활성화 클릭 트리거
     document.querySelector(`[data-mode="${currentMode}"]`)?.click();
   } catch (err) {
     console.error("초기화 중 오류 발생:", err);
   } finally {
-    // 모든 로드가 끝나면 스피너를 멈추고 로딩창을 숨김
     if (spinnerInstance) {
       spinnerInstance.stop();
     }
@@ -864,31 +872,9 @@ async function initApp() {
     }
   }
 }
+
 // 최종 앱 구동 실행
 initApp();
-
-canvas.addEventListener("pointerdown", handlePointerDown);
-canvas.addEventListener("pointermove", handlePointerMove);
-canvas.addEventListener("pointerup", handlePointerUp);
-canvas.addEventListener("pointerleave", handlePointerUp);
-canvas.addEventListener("touchstart", handlePointerDown, { passive: false });
-canvas.addEventListener("touchmove", handlePointerMove, { passive: false });
-canvas.addEventListener("touchend", handlePointerUp);
-
-palette.addEventListener("pointerdown", handlePalettePointerDown);
-replayButton.addEventListener("pointerdown", handleButtonPointerDown);
-window.addEventListener("pointermove", handlePalettePointerMove);
-window.addEventListener("pointerup", handlePalettePointerUp);
-replayButton.addEventListener("click", (event) => {
-  if (buttonDragMoved) {
-    buttonDragMoved = false;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    return;
-  }
-  replayDrawing();
-});
-window.addEventListener("beforeunload", sendBeaconSave);
 
 window.resetSketchR2 = async (secret) => {
   try {
