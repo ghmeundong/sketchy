@@ -287,6 +287,25 @@ function handleRemoteDraw(payload) {
   }
 }
 
+function handleRemoteDrawStep(payload) {
+  if (!payload || typeof payload !== "object") return;
+  if (payload.i === CLIENT_ID) return; 
+
+  const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
+  const width = Number(payload.w) || 1;
+  const mode = payload.m || "pencil";
+
+  if (payload.start && payload.end) {
+    drawLine({
+      start: payload.start,
+      end: payload.end,
+      color,
+      width,
+      mode,
+    });
+  }
+}
+
 function compactStrokes() {
   if (!Array.isArray(strokes)) return;
   if (strokes.length <= MAX_STROKES) return;
@@ -407,13 +426,31 @@ function handlePointerMove(event) {
   if (currentStroke) {
     currentStroke.points.push(point);
   }
+  if (channel) {
+    const rawColor = ctx.strokeStyle.replace("#", "");
+    channel.send({
+      type: "broadcast",
+      event: "draw_step", 
+      payload: {
+        start: lastPoint,
+        end: point,
+        c: [
+          parseInt(rawColor.slice(0, 2), 16),
+          parseInt(rawColor.slice(2, 4), 16),
+          parseInt(rawColor.slice(4, 6), 16),
+        ],
+        w: Math.round(ctx.lineWidth),
+        m: currentMode,
+        i: CLIENT_ID,
+      },
+    });
+  }
 
   lastPoint = point;
 
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveSketch, 150);
 }
-
 async function handlePointerUp(event) {
   if (replaying || !drawing) return;
   event.preventDefault();
@@ -714,10 +751,29 @@ function sendBeaconSave() {
 async function initRealtime() {
   try {
     channel = supabase.channel("sketchy-board");
+    
+    // [기존 리스너] - 최종 stroke 저장용 (그림 로드가 이미 되었다면 무시하거나 strokes 배열 백업용으로 사용 가능)
     channel.on("broadcast", { event: "draw" }, ({ payload }) => {
       if (!payload) return;
-      handleRemoteDraw(payload);
+      if (payload.i === CLIENT_ID) return;
+      
+      // 실시간으로 이미 그렸으므로, strokes 데이터 배열에만 추가해주고 그림은 다시 그리지 않도록 handleRemoteDraw 내부를 조절하거나 분리
+      if (Array.isArray(payload.points)) {
+        strokes.push({
+          type: "stroke",
+          points: payload.points,
+          c: payload.c,
+          w: payload.w,
+          m: payload.m || "pencil",
+        });
+      }
     });
+
+    // [추가 리스ner] - 실시간 드로잉 표현용
+    channel.on("broadcast", { event: "draw_step" }, ({ payload }) => {
+      handleRemoteDrawStep(payload);
+    });
+
     channel.on("broadcast", { event: "reset" }, () => {
       logStatus("리셋 이벤트 수신, 로컬 캐시를 지우고 새로고침합니다.");
       try {
