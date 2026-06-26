@@ -1,7 +1,9 @@
+//localStorage.clear(); window.location.reload(); 로컬 테스트 시 초기
+
 import "./style.css";
 import { api, API_BASE_URL } from "./services/api.js";
 import { supabase } from "./services/supabase.js";
-import rough from 'roughjs'
+import rough from "roughjs";
 
 const root = document.querySelector("main");
 if (!root) throw new Error("Main element not found.");
@@ -17,7 +19,7 @@ root.innerHTML = `
       </div>
       <div class="palette-row">
         <label for="size-range"></label>
-        <input id="size-range" type="range" min="1" max="32" value="4" />
+        <input id="size-range" type="range" min="1" max="12" value="4" />
       </div>
     </div>
     <button id="replay-button" class="floating-play-button" type="button" aria-label="재생">
@@ -37,6 +39,7 @@ if (!canvas || !colorInput || !sizeRange || !replayButton || !palette) {
 }
 
 const ctx = canvas.getContext("2d");
+const rc = rough.canvas(canvas);
 const dpr = window.devicePixelRatio || 1;
 let canvasWidth = 0;
 let canvasHeight = 0;
@@ -187,10 +190,6 @@ function resizeCanvas() {
   canvas.style.width = `${canvasWidth}px`;
   canvas.style.height = `${canvasHeight}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = colorInput.value;
-  ctx.lineWidth = Number(sizeRange.value);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 }
@@ -227,12 +226,28 @@ function getCanvasPoint(event) {
 }
 
 function drawLine({ start, end, color = ctx.strokeStyle, width = ctx.lineWidth }) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.beginPath();
-  ctx.moveTo(start.x, start.y);
-  ctx.lineTo(end.x, end.y);
-  ctx.stroke();
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.hypot(dx, dy);
+  
+  const step = Math.max(1, width * 0.15);
+  
+  // 💡 1. 그리기 전에 컨텍스트 투명도를 0.2~0.4 정도로 낮춥니다.
+  ctx.globalAlpha = 0.1; 
+
+  for (let i = 0; i <= distance; i += step) {
+    const t = distance === 0 ? 0 : i / distance;
+    const cx = start.x + dx * t;
+    const cy = start.y + dy * t;
+    
+    rc.circle(cx, cy, width, {
+      stroke: "none",
+      fill: color,
+      fillStyle: "solid",
+      roughness: 2
+    });
+  }
+  ctx.globalAlpha = 1.0; 
 }
 
 function compactStrokes() {
@@ -256,17 +271,15 @@ function compactStrokes() {
         ? `rgb(${ev.c[0]}, ${ev.c[1]}, ${ev.c[2]})`
         : ev.color || "#000";
       const width = Number(ev.w ?? ev.width) || 1;
-      octx.strokeStyle = color;
-      octx.lineWidth = width;
-      octx.lineCap = "round";
+      const orc = rough.canvas(off);
 
-      // New structure: draw all segments from points array
       if (Array.isArray(ev.points) && ev.points.length > 0) {
         for (let i = 0; i < ev.points.length - 1; i++) {
-          octx.beginPath();
-          octx.moveTo(ev.points[i].x, ev.points[i].y);
-          octx.lineTo(ev.points[i + 1].x, ev.points[i + 1].y);
-          octx.stroke();
+          orc.line(ev.points[i].x, ev.points[i].y, ev.points[i + 1].x, ev.points[i + 1].y, {
+            stroke: color,
+            strokeWidth: width,
+            roughness: 1.2,
+          });
         }
       } else if (ev.start && ev.end) {
         // Backward compatibility: old start/end structure
