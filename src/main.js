@@ -14,11 +14,15 @@ root.innerHTML = `
     <div id="paper-texture" class="paper-texture"></div>
     <div class="palette" id="palette">
       <div class="palette-row">
-        <label for="color-input"></label>
-        <input id="color-input" type="color" value="#111111" />
+        <label></label>
+        <div class="mode-selector">
+          <button type="button" class="mode-btn active" data-mode="pencil" title="연필" style="background: #555;"></button>
+          <button type="button" class="mode-btn" data-mode="crayon" title="크레파스" style="background: #d35400;"></button>
+          <button type="button" class="mode-btn" data-mode="marker" title="마커" style="background: #2ecc71;"></button>
+        </div>
       </div>
       <div class="palette-row">
-        <label for="size-range"></label>
+        <input id="color-input" type="color" value="#111111" />
         <input id="size-range" type="range" min="1" max="12" value="4" />
       </div>
     </div>
@@ -41,6 +45,8 @@ if (!canvas || !colorInput || !sizeRange || !replayButton || !palette) {
 const ctx = canvas.getContext("2d");
 const rc = rough.canvas(canvas);
 const dpr = window.devicePixelRatio || 1;
+
+let currentMode = "pencil";
 let canvasWidth = 0;
 let canvasHeight = 0;
 let drawing = false;
@@ -49,15 +55,15 @@ let paletteDrag = null;
 let buttonDrag = null;
 let buttonDragMoved = false;
 let strokes = [];
-let currentStroke = null; // current stroke being drawn: { type: "stroke", points: [...], c: [...], w: ... }
+let currentStroke = null;
 let channel = null;
 let saveTimeout = null;
 let replaying = false;
 let lastImageData = null;
 const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
-// Local compaction/caching settings
-const MAX_STROKES = 100; // when exceeded, compact recent strokes
-const MERGE_FROM = 50; // merge strokes from index MERGE_FROM..end into one snapshot
+
+const MAX_STROKES = 100;
+const MERGE_FROM = 50;
 
 function logStatus(message) {
   console.log(message);
@@ -152,36 +158,6 @@ function resolveCollision(movingEl, otherEl, desiredX, desiredY) {
   return { x: adjustedX, y: adjustedY };
 }
 
-function handleRemoteDraw(payload) {
-  if (!payload || typeof payload !== "object") return;
-  if (payload.i === CLIENT_ID) return;
-  if (!Array.isArray(payload.c)) return;
-
-  const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
-  const width = Number(payload.w) || 1;
-
-  // New structure: points array within one stroke object
-  if (Array.isArray(payload.points) && payload.points.length > 0) {
-    // Add to strokes for persistence
-    strokes.push({
-      type: "stroke",
-      points: payload.points,
-      c: payload.c,
-      w: payload.w,
-    });
-
-    // Draw all segments of this stroke
-    for (let i = 0; i < payload.points.length - 1; i++) {
-      drawLine({
-        start: payload.points[i],
-        end: payload.points[i + 1],
-        color,
-        width,
-      });
-    }
-  }
-}
-
 function resizeCanvas() {
   canvasWidth = window.innerWidth;
   canvasHeight = window.innerHeight;
@@ -225,36 +201,96 @@ function getCanvasPoint(event) {
   };
 }
 
-function drawLine({ start, end, color = ctx.strokeStyle, width = ctx.lineWidth }) {
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
+    e.target.classList.add("active");
+    currentMode = e.target.dataset.mode;
+    logStatus(`모드 변경: ${currentMode}`);
+  });
+});
+
+function drawLine({
+  start,
+  end,
+  color = ctx.strokeStyle,
+  width = ctx.lineWidth,
+  mode = currentMode,
+}) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.hypot(dx, dy);
 
-  const step = Math.max(1, width * 0.15);
-
-  // 💡 1. 그리기 전에 컨텍스트 투명도를 0.2~0.4 정도로 낮춥니다.
-  ctx.globalAlpha = 0.1;
-
-  for (let i = 0; i <= distance; i += step) {
-    const t = distance === 0 ? 0 : i / distance;
-    const cx = start.x + dx * t;
-    const cy = start.y + dy * t;
-
-    rc.circle(cx, cy, width, {
-      stroke: "none",
-      fill: color,
-      fillStyle: "solid",
-      roughness: 2,
+  if (mode === "pencil") {
+    ctx.globalAlpha = 0.2;
+    const step = Math.max(1, width * 0.1);
+    for (let i = 0; i <= distance; i += step) {
+      const t = distance === 0 ? 0 : i / distance;
+      rc.circle(start.x + dx * t, start.y + dy * t, width, {
+        stroke: "none",
+        fill: color,
+        fillStyle: "solid",
+        roughness: 0.4,
+      });
+    }
+  } else if (mode === "crayon") {
+    ctx.globalAlpha = 0.6;
+    const step = Math.max(1, width * 0.15);
+    for (let i = 0; i <= distance; i += step) {
+      const t = distance === 0 ? 0 : i / distance;
+      rc.circle(start.x + dx * t, start.y + dy * t, width, {
+        stroke: "none",
+        fill: color,
+        fillStyle: "solid",
+        roughness: 2.0,
+      });
+    }
+  } else if (mode === "marker") {
+    ctx.globalAlpha = 1.0;
+    rc.line(start.x, start.y, end.x, end.y, {
+      stroke: color,
+      strokeWidth: width,
+      roughness: 1.0,
     });
   }
+
   ctx.globalAlpha = 1.0;
+}
+
+function handleRemoteDraw(payload) {
+  if (!payload || typeof payload !== "object") return;
+  if (payload.i === CLIENT_ID) return;
+  if (!Array.isArray(payload.c)) return;
+
+  const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
+  const width = Number(payload.w) || 1;
+  const mode = payload.m || "pencil";
+
+  if (Array.isArray(payload.points) && payload.points.length > 0) {
+    strokes.push({
+      type: "stroke",
+      points: payload.points,
+      c: payload.c,
+      w: payload.w,
+      m: mode,
+    });
+
+    for (let i = 0; i < payload.points.length - 1; i++) {
+      drawLine({
+        start: payload.points[i],
+        end: payload.points[i + 1],
+        color,
+        width,
+        mode,
+      });
+    }
+  }
 }
 
 function compactStrokes() {
   if (!Array.isArray(strokes)) return;
   if (strokes.length <= MAX_STROKES) return;
 
-  // Create offscreen canvas to render the chunk to merge
   const off = document.createElement("canvas");
   off.width = canvasWidth;
   off.height = canvasHeight;
@@ -263,7 +299,6 @@ function compactStrokes() {
   octx.fillStyle = "#fff";
   octx.fillRect(0, 0, off.width, off.height);
 
-  // strokes to merge: MERGE_FROM .. end
   const toMerge = strokes.slice(MERGE_FROM);
   for (const ev of toMerge) {
     if (ev.type === "stroke") {
@@ -271,22 +306,37 @@ function compactStrokes() {
         ? `rgb(${ev.c[0]}, ${ev.c[1]}, ${ev.c[2]})`
         : ev.color || "#000";
       const width = Number(ev.w ?? ev.width) || 1;
+      const mode = ev.m || "pencil";
       const orc = rough.canvas(off);
 
       if (Array.isArray(ev.points) && ev.points.length > 0) {
         for (let i = 0; i < ev.points.length - 1; i++) {
-          orc.line(ev.points[i].x, ev.points[i].y, ev.points[i + 1].x, ev.points[i + 1].y, {
-            stroke: color,
-            strokeWidth: width,
-            roughness: 1.2,
-          });
+          const dx = ev.points[i + 1].x - ev.points[i].x;
+          const dy = ev.points[i + 1].y - ev.points[i].y;
+          const distance = Math.hypot(dx, dy);
+
+          if (mode === "pencil" || mode === "crayon") {
+            octx.globalAlpha = mode === "pencil" ? 0.2 : 0.6;
+            const roughnessVal = mode === "pencil" ? 0.4 : 2.0;
+            const step = Math.max(1, width * (mode === "pencil" ? 0.1 : 0.15));
+            for (let j = 0; j <= distance; j += step) {
+              const t = distance === 0 ? 0 : j / distance;
+              orc.circle(ev.points[i].x + dx * t, ev.points[i].y + dy * t, width, {
+                stroke: "none",
+                fill: color,
+                fillStyle: "solid",
+                roughness: roughnessVal,
+              });
+            }
+          } else {
+            octx.globalAlpha = 1.0;
+            orc.line(ev.points[i].x, ev.points[i].y, ev.points[i + 1].x, ev.points[i + 1].y, {
+              stroke: color,
+              strokeWidth: width,
+              roughness: 1.0,
+            });
+          }
         }
-      } else if (ev.start && ev.end) {
-        // Backward compatibility: old start/end structure
-        octx.beginPath();
-        octx.moveTo(ev.start.x, ev.start.y);
-        octx.lineTo(ev.end.x, ev.end.y);
-        octx.stroke();
       }
     } else if (ev.type === "clear") {
       octx.fillStyle = "#fff";
@@ -294,11 +344,8 @@ function compactStrokes() {
     }
   }
 
-  // create a snapshot event (use WebP to reduce size)
   const imageData = off.toDataURL("image/webp", 0.8);
-  // keep first MERGE_FROM events, append snapshot
   strokes = strokes.slice(0, MERGE_FROM).concat([{ type: "snapshot", imageData }]);
-  // persist compacted strokes locally
   try {
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
   } catch {
@@ -330,7 +377,6 @@ function handlePointerDown(event) {
   drawing = true;
   lastPoint = getCanvasPoint(event);
 
-  // Start a new stroke and collect points
   const rawColor = ctx.strokeStyle.replace("#", "");
   currentStroke = {
     type: "stroke",
@@ -341,6 +387,7 @@ function handlePointerDown(event) {
       parseInt(rawColor.slice(4, 6), 16),
     ],
     w: Math.round(ctx.lineWidth),
+    m: currentMode,
   };
 }
 
@@ -348,10 +395,15 @@ function handlePointerMove(event) {
   if (replaying || !drawing || !lastPoint) return;
   event.preventDefault();
   const point = getCanvasPoint(event);
-  const segment = { start: lastPoint, end: point, color: ctx.strokeStyle, width: ctx.lineWidth };
+  const segment = {
+    start: lastPoint,
+    end: point,
+    color: ctx.strokeStyle,
+    width: ctx.lineWidth,
+    mode: currentMode,
+  };
   drawLine(segment);
 
-  // Add point to current stroke
   if (currentStroke) {
     currentStroke.points.push(point);
   }
@@ -369,11 +421,9 @@ async function handlePointerUp(event) {
   lastPoint = null;
   clearTimeout(saveTimeout);
 
-  // Complete stroke and broadcast/save
   if (currentStroke && currentStroke.points.length > 0) {
     strokes.push(currentStroke);
 
-    // Broadcast completed stroke to other clients
     if (channel) {
       channel.send({
         type: "broadcast",
@@ -382,6 +432,7 @@ async function handlePointerUp(event) {
           points: currentStroke.points,
           c: currentStroke.c,
           w: currentStroke.w,
+          m: currentStroke.m,
           i: CLIENT_ID,
         },
       });
@@ -451,7 +502,6 @@ function handlePalettePointerUp() {
 }
 
 async function replayDrawing() {
-  console.log("replay clicked", { replaying, strokesLength: strokes.length });
   if (replaying) return;
   if (!strokes.length) {
     logStatus("재생할 기록이 없습니다.");
@@ -472,7 +522,7 @@ async function replayDrawing() {
     const elapsedTime = performance.now() - replayStartTime;
     const progress = Math.min(1, elapsedTime / 4000);
     const exponentialProgress = Math.pow(progress, 3);
-    return 1 + Math.floor(exponentialProgress * 14); // 1..15 segments per frame
+    return 1 + Math.floor(exponentialProgress * 14);
   };
 
   for (const event of strokes) {
@@ -505,24 +555,17 @@ async function replayDrawing() {
       ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
       : event.color || ctx.strokeStyle;
     const width = Number(event.w ?? event.width) || 1;
+    const mode = event.m || "pencil";
 
     if (Array.isArray(event.points) && event.points.length > 0) {
       for (let i = 0; i < event.points.length - 1; i++) {
-        drawLine({ start: event.points[i], end: event.points[i + 1], color, width });
+        drawLine({ start: event.points[i], end: event.points[i + 1], color, width, mode });
         segmentsThisFrame += 1;
         if (segmentsThisFrame >= segmentsPerFrame) {
           segmentsThisFrame = 0;
           segmentsPerFrame = computeSegmentsPerFrame();
           await nextFrame();
         }
-      }
-    } else if (event.start && event.end) {
-      drawLine({ start: event.start, end: event.end, color, width });
-      segmentsThisFrame += 1;
-      if (segmentsThisFrame >= segmentsPerFrame) {
-        segmentsThisFrame = 0;
-        segmentsPerFrame = computeSegmentsPerFrame();
-        await nextFrame();
       }
     }
   }
@@ -559,15 +602,12 @@ async function loadInitialSketch() {
             ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
             : event.color || ctx.strokeStyle;
           const width = Number(event.w ?? event.width) || 1;
+          const mode = event.m || "pencil";
 
-          // New structure: draw all segments from points array
           if (Array.isArray(event.points) && event.points.length > 0) {
             for (let i = 0; i < event.points.length - 1; i++) {
-              drawLine({ start: event.points[i], end: event.points[i + 1], color, width });
+              drawLine({ start: event.points[i], end: event.points[i + 1], color, width, mode });
             }
-          } else if (event.start && event.end) {
-            // Backward compatibility: old start/end structure
-            drawLine({ start: event.start, end: event.end, color, width });
           }
         } else if (event.type === "clear") {
           ctx.fillStyle = "#fff";
@@ -582,15 +622,11 @@ async function loadInitialSketch() {
       return;
     }
 
-    // Remote returned no vector. If we have a local cache, prefer it
-    // (avoid overwriting local on refresh when remote temporarily empty).
     if (localStrokes) {
       console.log("R2에 그림 없음 — 로컬 캐시 유지");
-      // fall through to local restore below
       return;
     }
 
-    // no local cache either — clear canvas state
     strokes = [];
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -624,15 +660,18 @@ async function loadInitialSketch() {
                 ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
                 : event.color || ctx.strokeStyle;
               const width = Number(event.w ?? event.width) || 1;
+              const mode = event.m || "pencil";
 
-              // New structure: draw all segments from points array
               if (Array.isArray(event.points) && event.points.length > 0) {
                 for (let i = 0; i < event.points.length - 1; i++) {
-                  drawLine({ start: event.points[i], end: event.points[i + 1], color, width });
+                  drawLine({
+                    start: event.points[i],
+                    end: event.points[i + 1],
+                    color,
+                    width,
+                    mode,
+                  });
                 }
-              } else if (event.start && event.end) {
-                // Backward compatibility: old start/end structure
-                drawLine({ start: event.start, end: event.end, color, width });
               }
             } else if (event.type === "clear") {
               ctx.fillStyle = "#fff";
@@ -645,23 +684,15 @@ async function loadInitialSketch() {
       // ignore
     }
   }
-
-  if (!localImage && !localStrokes) {
-    console.log("저장된 그림이 없습니다.");
-  }
 }
 
 async function saveSketch() {
   try {
     const imageData = canvas.toDataURL("image/webp", 0.8);
     lastImageData = imageData;
-    // update local cache
     localStorage.setItem("sketchy-canvas", imageData);
-    // compact strokes locally to avoid unbounded growth
     compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
-    // persist vector-only to backend (already compacted)
-    // but strip heavy snapshot imageData to avoid sending large blobs to R2
     const sanitized = strokes.map((ev) => {
       if (ev?.type === "snapshot") return { type: "snapshot" };
       return ev;

@@ -114,17 +114,14 @@ main {
 }
 
 .palette-row {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
 
 .palette-row:last-child {
   margin-bottom: 0;
-}
-
-.palette-row label {
-  font-size: 0.9rem;
 }
 
 /* ==========================================
@@ -140,7 +137,6 @@ main {
 
   /* 살짝 찌그러진 작은 원 모양 */
   border-radius: 45% 55% 48% 52% / 52% 48% 55% 45%;
-  border: 2px solid #4a2f1b;
   cursor: pointer;
   box-sizing: border-box;
   padding: 4px;
@@ -164,9 +160,10 @@ main {
   box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
 }
 
-/* ==========================================
-   ✏️ 3. 브러시 두께 슬라이더 (Range) 스타일
-   ========================================== */
+#size-range {
+  flex: 1;
+}
+
 .palette-row input[type="range"] {
   width: 100%;
   appearance: none;
@@ -175,7 +172,6 @@ main {
   cursor: pointer;
 }
 
-/* 슬라이더 트랙 - 빗금친 듯한 나무 질감 효과 */
 .palette-row input[type="range"]::-webkit-slider-runnable-track {
   height: 10px;
   border-radius: 999px;
