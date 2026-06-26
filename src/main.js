@@ -240,7 +240,6 @@ function drawLine({ start, end, color, width, mode = currentMode }) {
   const dy = end.y - start.y;
   const distance = Math.hypot(dx, dy);
   ctx.save();
-  변경;
   const targetColor = color || ctx.strokeStyle;
   const targetWidth = width || ctx.lineWidth;
 
