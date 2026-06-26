@@ -229,25 +229,25 @@ function drawLine({ start, end, color = ctx.strokeStyle, width = ctx.lineWidth }
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.hypot(dx, dy);
-  
+
   const step = Math.max(1, width * 0.15);
-  
+
   // 💡 1. 그리기 전에 컨텍스트 투명도를 0.2~0.4 정도로 낮춥니다.
-  ctx.globalAlpha = 0.1; 
+  ctx.globalAlpha = 0.1;
 
   for (let i = 0; i <= distance; i += step) {
     const t = distance === 0 ? 0 : i / distance;
     const cx = start.x + dx * t;
     const cy = start.y + dy * t;
-    
+
     rc.circle(cx, cy, width, {
       stroke: "none",
       fill: color,
       fillStyle: "solid",
-      roughness: 2
+      roughness: 2,
     });
   }
-  ctx.globalAlpha = 1.0; 
+  ctx.globalAlpha = 1.0;
 }
 
 function compactStrokes() {
