@@ -18,12 +18,12 @@ root.innerHTML = `
         <div class="mode-selector">
           <button type="button" class="mode-btn active" data-mode="pencil" title="연필" style="background: #555;"></button>
           <button type="button" class="mode-btn" data-mode="crayon" title="크레파스" style="background: #d35400;"></button>
-          <button type="button" class="mode-btn" data-mode="marker" title="마커" style="background: #2ecc71;"></button>
+          <button type="button" class="mode-btn" data-mode="brush" title="붓" style="background: #2ecc71;"></button>
         </div>
       </div>
       <div class="palette-row">
         <input id="color-input" type="color" value="#111111" />
-        <input id="size-range" type="range" min="1" max="12" value="4" />
+        <input id="size-range" type="range" min="1" max="8" value="4" />
       </div>
     </div>
     <button id="replay-button" class="floating-play-button" type="button" aria-label="재생">
@@ -59,7 +59,6 @@ let currentStroke = null;
 let channel = null;
 let saveTimeout = null;
 let replaying = false;
-let lastImageData = null;
 const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
 
 const MAX_STROKES = 100;
@@ -186,9 +185,18 @@ colorInput.addEventListener("input", (event) => {
   logStatus(`색상 변경: ${event.target.value}`);
 });
 
+// 기존 코드 변경
 sizeRange.addEventListener("input", (event) => {
-  ctx.lineWidth = Number(event.target.value);
-  logStatus(`브러시 두께: ${event.target.value}`);
+  let value = Number(event.target.value);
+
+  const settings = MODE_SETTINGS[currentMode];
+  if (settings) {
+    value = Math.min(Math.max(value, settings.min), settings.max);
+    event.target.value = value;
+  }
+
+  ctx.lineWidth = value;
+  logStatus(`[${currentMode}] 브러시 두께 변경: ${value}`);
 });
 
 function getCanvasPoint(event) {
@@ -201,12 +209,29 @@ function getCanvasPoint(event) {
   };
 }
 
+const MODE_SETTINGS = {
+  pencil: { min: 1, max: 8, default: 2 },
+  crayon: { min: 4, max: 24, default: 10 },
+  brush: { min: 2, max: 100, default: 25 },
+};
+
 document.querySelectorAll(".mode-btn").forEach((btn) => {
   btn.addEventListener("click", (e) => {
     document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
     e.target.classList.add("active");
+
     currentMode = e.target.dataset.mode;
     logStatus(`모드 변경: ${currentMode}`);
+    const settings = MODE_SETTINGS[currentMode];
+    if (settings) {
+      sizeRange.min = settings.min;
+      sizeRange.max = settings.max;
+      sizeRange.value = settings.default;
+
+      ctx.lineWidth = settings.default;
+      logStatus(`브러시 두께 자동 조절: ${settings.default}`);
+    }
+    // =========================================================
   });
 });
 
@@ -222,19 +247,25 @@ function drawLine({
   const distance = Math.hypot(dx, dy);
 
   if (mode === "pencil") {
-    ctx.globalAlpha = 0.2;
-    const step = Math.max(1, width * 0.1);
+    // ctx.globalAlpha = 1.0;
+    // rc.line(start.x, start.y, end.x, end.y, {
+    //   stroke: color,
+    //   strokeWidth: width,
+    //   roughness: 1.0,
+    // });
+    ctx.globalAlpha = 0.15;
+    const step = Math.max(1.5, width * 0.4);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
       rc.circle(start.x + dx * t, start.y + dy * t, width, {
         stroke: "none",
         fill: color,
         fillStyle: "solid",
-        roughness: 0.4,
+        roughness: 2.0,
       });
     }
   } else if (mode === "crayon") {
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.4;
     const step = Math.max(1, width * 0.15);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
@@ -245,13 +276,17 @@ function drawLine({
         roughness: 2.0,
       });
     }
-  } else if (mode === "marker") {
-    ctx.globalAlpha = 1.0;
-    rc.line(start.x, start.y, end.x, end.y, {
-      stroke: color,
-      strokeWidth: width,
-      roughness: 1.0,
-    });
+  } else if (mode === "brush") {
+    ctx.globalAlpha = 1;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
   }
 
   ctx.globalAlpha = 1.0;
@@ -260,36 +295,6 @@ function drawLine({
 function handleRemoteDraw(payload) {
   if (!payload || typeof payload !== "object") return;
   if (payload.i === CLIENT_ID) return;
-  if (!Array.isArray(payload.c)) return;
-
-  const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
-  const width = Number(payload.w) || 1;
-  const mode = payload.m || "pencil";
-
-  if (Array.isArray(payload.points) && payload.points.length > 0) {
-    strokes.push({
-      type: "stroke",
-      points: payload.points,
-      c: payload.c,
-      w: payload.w,
-      m: mode,
-    });
-
-    for (let i = 0; i < payload.points.length - 1; i++) {
-      drawLine({
-        start: payload.points[i],
-        end: payload.points[i + 1],
-        color,
-        width,
-        mode,
-      });
-    }
-  }
-}
-
-function handleRemoteDrawStep(payload) {
-  if (!payload || typeof payload !== "object") return;
-  if (payload.i === CLIENT_ID) return; 
 
   const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
   const width = Number(payload.w) || 1;
@@ -430,7 +435,7 @@ function handlePointerMove(event) {
     const rawColor = ctx.strokeStyle.replace("#", "");
     channel.send({
       type: "broadcast",
-      event: "draw_step", 
+      event: "draw_step",
       payload: {
         start: lastPoint,
         end: point,
@@ -672,7 +677,6 @@ async function loadInitialSketch() {
   }
 
   if (localImage) {
-    lastImageData = localImage;
     const image = new Image();
     image.src = localImage;
     image.onload = () => {
@@ -726,7 +730,6 @@ async function loadInitialSketch() {
 async function saveSketch() {
   try {
     const imageData = canvas.toDataURL("image/webp", 0.8);
-    lastImageData = imageData;
     localStorage.setItem("sketchy-canvas", imageData);
     compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
@@ -751,12 +754,14 @@ function sendBeaconSave() {
 async function initRealtime() {
   try {
     channel = supabase.channel("sketchy-board");
-    
+
     // [기존 리스너] - 최종 stroke 저장용 (그림 로드가 이미 되었다면 무시하거나 strokes 배열 백업용으로 사용 가능)
     channel.on("broadcast", { event: "draw" }, ({ payload }) => {
       if (!payload) return;
       if (payload.i === CLIENT_ID) return;
-      
+
+      handleRemoteDraw(payload);
+
       // 실시간으로 이미 그렸으므로, strokes 데이터 배열에만 추가해주고 그림은 다시 그리지 않도록 handleRemoteDraw 내부를 조절하거나 분리
       if (Array.isArray(payload.points)) {
         strokes.push({
@@ -771,7 +776,7 @@ async function initRealtime() {
 
     // [추가 리스ner] - 실시간 드로잉 표현용
     channel.on("broadcast", { event: "draw_step" }, ({ payload }) => {
-      handleRemoteDrawStep(payload);
+      handleRemoteDraw(payload);
     });
 
     channel.on("broadcast", { event: "reset" }, () => {
@@ -796,6 +801,7 @@ async function initRealtime() {
     console.error("Supabase 초기화 오류", error);
   }
 }
+document.querySelector(`[data-mode="${currentMode}"]`)?.click();
 
 await loadInitialSketch();
 initRealtime();
