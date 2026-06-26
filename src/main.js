@@ -29,6 +29,9 @@ root.innerHTML = `
     <button id="replay-button" class="floating-play-button" type="button" aria-label="재생">
       <span class="play-icon">▶</span>
     </button>
+    <div id="loading-overlay" class="loading-overlay">
+      <pLoading doodles from R2...</p>
+    </div>
   </div>
 `;
 
@@ -793,8 +796,76 @@ async function initRealtime() {
 }
 document.querySelector(`[data-mode="${currentMode}"]`)?.click();
 
-await loadInitialSketch();
-initRealtime();
+function drawSketchySpinner() {
+  const spinCanvas = document.querySelector("#loading-spinner-canvas");
+  if (!spinCanvas) return null;
+  const sctx = spinCanvas.getContext("2d");
+  const src = rough.canvas(spinCanvas);
+
+  let angle = 0;
+  let animationId = null;
+
+  function animate() {
+    sctx.clearRect(0, 0, spinCanvas.width, spinCanvas.height);
+
+    sctx.save();
+    sctx.translate(spinCanvas.width / 2, spinCanvas.height / 2);
+    sctx.rotate((angle * Math.PI) / 180);
+
+    src.circle(0, 0, 20, {
+      // 캔버스 크기(60x60)에 맞게 반지름을 20으로 조절
+      stroke: "#555",
+      strokeWidth: 3,
+      fillStyle: "solid",
+      fill: "transparent",
+      roughness: 2.0,
+      bowing: 1.5,
+    });
+
+    sctx.restore();
+
+    angle = (angle + 8) % 360;
+    animationId = requestAnimationFrame(animate);
+  }
+
+  animate();
+
+  return {
+    stop: () => cancelAnimationFrame(animationId),
+  };
+}
+
+// 2. 앱 초기화 및 구동 함수
+async function initApp() {
+  const loadingOverlay = document.querySelector("#loading-overlay");
+  let spinnerInstance = null;
+
+  try {
+    // 로딩 시작할 때 스케치 스피너 가동
+    spinnerInstance = drawSketchySpinner();
+
+    // R2 및 로컬 캐시에서 기존 스케치 데이터를 불러옴
+    await loadInitialSketch();
+
+    // 실시간 소켓 채널 연결
+    await initRealtime();
+
+    // 데이터 로드가 완전히 끝난 후 초기 모드(pencil) 활성화
+    document.querySelector(`[data-mode="${currentMode}"]`)?.click();
+  } catch (err) {
+    console.error("초기화 중 오류 발생:", err);
+  } finally {
+    // 모든 로드가 끝나면 스피너를 멈추고 로딩창을 숨김
+    if (spinnerInstance) {
+      spinnerInstance.stop();
+    }
+    if (loadingOverlay) {
+      loadingOverlay.classList.add("hidden");
+    }
+  }
+}
+// 최종 앱 구동 실행
+initApp();
 
 canvas.addEventListener("pointerdown", handlePointerDown);
 canvas.addEventListener("pointermove", handlePointerMove);

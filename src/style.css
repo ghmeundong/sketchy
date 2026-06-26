@@ -297,3 +297,10 @@ main {
     background-position: 0% 50%;
   }
 }
+
+.loading-overlay p {
+  margin: 12px 0 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #444;
+}

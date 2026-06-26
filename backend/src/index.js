@@ -2,6 +2,8 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Credentials": "true", // 쿠키나 세션 인증 공유가 필요할 수 있으므로 추가
+  "Access-Control-Max-Age": "86400",
 };
 
 function jsonResponse(body, status = 200) {
@@ -146,13 +148,39 @@ async function handleRequest(request, env) {
 
 export default {
   async fetch(request, env, _context) {
-    // Handle CORS preflight
+    // 2. 브라우저가 본 요청(POST)을 보내기 전 안전을 확인하는 OPTIONS(Preflight) 요청 완벽 방어
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: CORS_HEADERS,
+        headers: {
+          ...CORS_HEADERS,
+          // 요청한 브라우저의 Origin을 동적으로 매칭해주면 가장 안전합니다.
+          "Access-Control-Allow-Origin": request.headers.get("Origin") || "*",
+        },
       });
     }
-    return handleRequest(request, env);
+
+    // 3. 일반 요청(GET, POST 등) 처리할 때도 동적 Origin을 적용하도록 래핑하여 handleRequest 호출
+    try {
+      const response = await handleRequest(request, env);
+
+      // 기존 response의 헤더를 복사하면서 CORS 헤더가 유실되지 않도록 재확인합니다.
+      const newHeaders = new Headers(response.headers);
+      Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+        if (key === "Access-Control-Allow-Origin") {
+          newHeaders.set(key, request.headers.get("Origin") || "*");
+        } else {
+          newHeaders.set(key, value);
+        }
+      });
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: newHeaders,
+      });
+    } catch (error) {
+      return errorResponse(error.message || "Internal Server Error");
+    }
   },
 };
