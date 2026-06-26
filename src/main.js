@@ -235,43 +235,35 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
   });
 });
 
-function drawLine({
-  start,
-  end,
-  color = ctx.strokeStyle,
-  width = ctx.lineWidth,
-  mode = currentMode,
-}) {
+function drawLine({ start, end, color, width, mode = currentMode }) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.hypot(dx, dy);
+  ctx.save();
+  변경;
+  const targetColor = color || ctx.strokeStyle;
+  const targetWidth = width || ctx.lineWidth;
 
   if (mode === "pencil") {
-    // ctx.globalAlpha = 1.0;
-    // rc.line(start.x, start.y, end.x, end.y, {
-    //   stroke: color,
-    //   strokeWidth: width,
-    //   roughness: 1.0,
-    // });
     ctx.globalAlpha = 0.15;
-    const step = Math.max(1.5, width * 0.4);
+    const step = Math.max(1.5, targetWidth * 0.4);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      rc.circle(start.x + dx * t, start.y + dy * t, width, {
+      rc.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
         stroke: "none",
-        fill: color,
+        fill: targetColor,
         fillStyle: "solid",
         roughness: 2.0,
       });
     }
   } else if (mode === "crayon") {
     ctx.globalAlpha = 0.4;
-    const step = Math.max(1, width * 0.15);
+    const step = Math.max(1, targetWidth * 0.15);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      rc.circle(start.x + dx * t, start.y + dy * t, width, {
+      rc.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
         stroke: "none",
-        fill: color,
+        fill: targetColor,
         fillStyle: "solid",
         roughness: 2.0,
       });
@@ -280,16 +272,15 @@ function drawLine({
     ctx.globalAlpha = 1;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
+    ctx.strokeStyle = targetColor;
+    ctx.lineWidth = targetWidth;
 
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
   }
-
-  ctx.globalAlpha = 1.0;
+  ctx.restore();
 }
 
 function handleRemoteDraw(payload) {
@@ -422,8 +413,8 @@ function handlePointerMove(event) {
   const segment = {
     start: lastPoint,
     end: point,
-    color: ctx.strokeStyle,
-    width: ctx.lineWidth,
+    color: colorInput.value, // ctx.strokeStyle 대신 DOM value를 직접 가리켜 확실히 정의
+    width: Number(sizeRange.value), // sizeRange의 값을 직접 가리켜 확실히 정의
     mode: currentMode,
   };
   drawLine(segment);
