@@ -1,6 +1,7 @@
 import "./style.css";
 import { api, API_BASE_URL } from "./services/api.js";
 import { supabase } from "./services/supabase.js";
+import rough from 'roughjs'
 
 const root = document.querySelector("main");
 if (!root) throw new Error("Main element not found.");
