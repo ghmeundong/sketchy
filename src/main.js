@@ -16,7 +16,7 @@ root.innerHTML = `
       <div class="palette-row">
         <label></label>
         <div class="mode-selector">
-          <button type="button" class="mode-btn active" data-mode="pencil" title="pencil"">✏️</button>
+          <button type="button" class="mode-btn active" data-mode="pencil" title="pencil">✏️</button>
           <button type="button" class="mode-btn" data-mode="crayon" title="crayon">🖍️</button>
           <button type="button" class="mode-btn" data-mode="brush" title="brush">🖌️</button>
         </div>
@@ -175,16 +175,14 @@ function resizeCanvas() {
   canvas.style.width = `${canvasWidth}px`;
   canvas.style.height = `${canvasHeight}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  // 페이퍼 텍스처(배경)가 보이도록 캔버스를 지우는 방식으로 변경 (필요시 #fff로 채우셔도 무방합니다)
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 }
 
 function preserveCanvasResize() {
-  // 1. 캔버스 크기를 새로운 창 크기에 맞게 리사이즈하고 초기화합니다.
+  // 1. 캔버스 해상도 및 매트릭스 리셋
   resizeCanvas();
 
-  // 2. 저장되어 있던 모든 선 데이터(strokes)를 새 도화지 크기에 맞춰 처음부터 다시 그려줍니다.
+  // 2. 저장되어 있던 모든 선 데이터(strokes) 복원 드로잉
   if (Array.isArray(strokes)) {
     for (const event of strokes) {
       if (event.type === "stroke") {
@@ -208,7 +206,6 @@ function preserveCanvasResize() {
       } else if (event.type === "clear") {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       } else if (event.type === "snapshot" && typeof event.imageData === "string") {
-        // 압축용 스냅샷이 있는 경우 그것도 원래 크기로 얹어줍니다.
         const img = new Image();
         img.src = event.imageData;
         img.onload = () => ctx.drawImage(img, 0, 0);
@@ -217,14 +214,18 @@ function preserveCanvasResize() {
   }
 }
 
+// 초기 실행 시 캔버스 바인딩
 resizeCanvas();
 
+// --- 리사이즈 디바운스 및 스피너 오버레이 처리 ---
 let resizeTimeout = null;
 let resizeSpinner = null;
 
 function handleResizeWithDebounce() {
   const loadingOverlay = document.querySelector("#loading-overlay");
   const loadingText = loadingOverlay?.querySelector("p");
+
+  // 크기 조절이 '시작'되는 시점에 최초 1회만 화면을 비우고 스피너 작동
   if (!resizeTimeout) {
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
@@ -236,14 +237,22 @@ function handleResizeWithDebounce() {
       }
     }
   }
+
+  // 조절 중 뼈대 레이아웃이 깨지지 않도록 스타일 크기는 동적 동기화
   canvasWidth = window.innerWidth;
   canvasHeight = window.innerHeight;
   canvas.style.width = `${canvasWidth}px`;
   canvas.style.height = `${canvasHeight}px`;
+
+  // 디바운스 타이머 갱신
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
     logStatus("resizing complete");
+
+    // 조절 완료 후 복원 드로잉 계산 수행
     preserveCanvasResize();
+
+    // 오버레이 제거 및 스피너 정지
     if (loadingOverlay) {
       loadingOverlay.classList.add("hidden");
     }
@@ -903,7 +912,6 @@ function drawSketchySpinner() {
   };
 }
 
-// 2. 앱 초기화 및 구동 함수
 async function initApp() {
   const loadingOverlay = document.querySelector("#loading-overlay");
   let spinnerInstance = null;
@@ -913,7 +921,6 @@ async function initApp() {
     await loadInitialSketch();
     await initRealtime();
 
-    // 이벤트 리스너를 initApp 내부/완료 시점에 바인딩하여 캔버스 조작 시점과 충돌 방지
     canvas.addEventListener("pointerdown", handlePointerDown);
     canvas.addEventListener("pointermove", handlePointerMove);
     canvas.addEventListener("pointerup", handlePointerUp);
@@ -939,7 +946,6 @@ async function initApp() {
 
     window.addEventListener("beforeunload", sendBeaconSave);
 
-    // 초기 모드 활성화 클릭 트리거
     document.querySelector(`[data-mode="${currentMode}"]`)?.click();
   } catch (err) {
     console.error("error while resetting:", err);
@@ -953,7 +959,6 @@ async function initApp() {
   }
 }
 
-// 최종 앱 구동 실행
 initApp();
 
 window.resetSketchR2 = async (secret) => {
