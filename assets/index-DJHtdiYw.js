@@ -29,7 +29,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <div class="palette-row">
         <label></label>
         <div class="mode-selector">
-          <button type="button" class="mode-btn active" data-mode="pencil" title="pencil"">✏️</button>
+          <button type="button" class="mode-btn active" data-mode="pencil" title="pencil">✏️</button>
           <button type="button" class="mode-btn" data-mode="crayon" title="crayon">🖍️</button>
           <button type="button" class="mode-btn" data-mode="brush" title="brush">🖌️</button>
         </div>
