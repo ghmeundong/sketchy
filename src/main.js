@@ -175,17 +175,46 @@ function resizeCanvas() {
   canvas.style.width = `${canvasWidth}px`;
   canvas.style.height = `${canvasHeight}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  
+
   // 페이퍼 텍스처(배경)가 보이도록 캔버스를 지우는 방식으로 변경 (필요시 #fff로 채우셔도 무방합니다)
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 }
 
 function preserveCanvasResize() {
-  const snapshot = canvas.toDataURL();
+  // 1. 캔버스 크기를 새로운 창 크기에 맞게 리사이즈하고 초기화합니다.
   resizeCanvas();
-  const image = new Image();
-  image.src = snapshot;
-  image.onload = () => ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
+
+  // 2. 저장되어 있던 모든 선 데이터(strokes)를 새 도화지 크기에 맞춰 처음부터 다시 그려줍니다.
+  if (Array.isArray(strokes)) {
+    for (const event of strokes) {
+      if (event.type === "stroke") {
+        const color = Array.isArray(event.c)
+          ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
+          : event.color || ctx.strokeStyle;
+        const width = Number(event.w ?? event.width) || 1;
+        const mode = event.m || "pencil";
+
+        if (Array.isArray(event.points) && event.points.length > 0) {
+          for (let i = 0; i < event.points.length - 1; i++) {
+            drawLine({
+              start: event.points[i],
+              end: event.points[i + 1],
+              color,
+              width,
+              mode,
+            });
+          }
+        }
+      } else if (event.type === "clear") {
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      } else if (event.type === "snapshot" && typeof event.imageData === "string") {
+        // 압축용 스냅샷이 있는 경우 그것도 원래 크기로 얹어줍니다.
+        const img = new Image();
+        img.src = event.imageData;
+        img.onload = () => ctx.drawImage(img, 0, 0);
+      }
+    }
+  }
 }
 
 resizeCanvas();
@@ -193,7 +222,7 @@ window.addEventListener("resize", preserveCanvasResize);
 
 colorInput.addEventListener("input", (event) => {
   ctx.strokeStyle = event.target.value;
-  logStatus(`색상 변경: ${event.target.value}`);
+  logStatus(`color changed: ${event.target.value}`);
 });
 
 sizeRange.addEventListener("input", (event) => {
@@ -206,7 +235,9 @@ sizeRange.addEventListener("input", (event) => {
   }
 
   ctx.lineWidth = value;
-  logStatus(`[${currentMode}] 브러시 두께 변경: ${value}`);
+  logStatus(`[${currentMode}] brush radius changed: ${value}`);
+
+  updateCanvasCursor();
 });
 
 function getCanvasPoint(event) {
@@ -235,8 +266,20 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
       ctx.lineWidth = settings.default;
       logStatus(`브러시 두께 자동 조절: ${settings.default}`);
     }
+    updateCanvasCursor();
   });
 });
+
+function updateCanvasCursor() {
+  const modeEmojis = { pencil: "✏️", crayon: "🖍️", brush: "🖌️" };
+  const emoji = modeEmojis[currentMode] || "✏️";
+  const cursorSize = 24;
+
+  const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${cursorSize}" height="${cursorSize}" style="font-size:${cursorSize - 4}px"><text x="0" y="${cursorSize - 6}">${emoji}</text></svg>`;
+  const cursorUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgString)))}`;
+
+  canvas.style.cursor = `url(${cursorUrl}) 2 ${cursorSize - 3}, auto`;
+}
 
 function drawLine({ start, end, color, width, mode = currentMode }) {
   const dx = end.x - start.x;
@@ -313,7 +356,7 @@ function compactStrokes() {
   off.height = canvasHeight;
   const octx = off.getContext("2d");
   if (!octx) return;
-  
+
   octx.clearRect(0, 0, off.width, off.height);
 
   const toMerge = strokes.slice(MERGE_FROM);
@@ -832,7 +875,7 @@ async function initApp() {
     spinnerInstance = drawSketchySpinner();
     await loadInitialSketch();
     await initRealtime();
-    
+
     // 이벤트 리스너를 initApp 내부/완료 시점에 바인딩하여 캔버스 조작 시점과 충돌 방지
     canvas.addEventListener("pointerdown", handlePointerDown);
     canvas.addEventListener("pointermove", handlePointerMove);
@@ -846,7 +889,7 @@ async function initApp() {
     replayButton.addEventListener("pointerdown", handleButtonPointerDown);
     window.addEventListener("pointermove", handlePalettePointerMove);
     window.addEventListener("pointerup", handlePalettePointerUp);
-    
+
     replayButton.addEventListener("click", (event) => {
       if (buttonDragMoved) {
         buttonDragMoved = false;
@@ -856,7 +899,7 @@ async function initApp() {
       }
       replayDrawing();
     });
-    
+
     window.addEventListener("beforeunload", sendBeaconSave);
 
     // 초기 모드 활성화 클릭 트리거

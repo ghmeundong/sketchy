@@ -23,6 +23,10 @@ main {
   width: 100vw;
 }
 
+canvas {
+  cursor: default;
+}
+
 .canvas-shell {
   position: relative;
   width: 100%;
@@ -125,30 +129,23 @@ main {
 }
 
 .mode-btn {
-  background: none;    /* 배경 제거 */
-  border: none;        /* 테두리 제거 */
-  padding: 0;          /* 기본 여백 제거 (필요에 따라 조절) */
-  font-size: 1.5rem;   /* 이모지 크기 키우기 (선택 사항) */
-  cursor: pointer;     /* 마우스 올렸을 때 커서 변경 */
-  outline: none;       /* 클릭 시 생기는 아웃라인 제거 */
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1.5rem;
+  cursor: pointer;
+  outline: none;
 }
 
-/* 활성화(active) 되었을 때 살짝 변화를 주고 싶다면 아래처럼 활용해보세요 */
 .mode-btn.active {
-  transform: scale(1.2); /* 크기를 살짝 키우거나 */
-  filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.3)); /* 그림자 효과를 줄 수 있습니다 */
+  transform: scale(1.2);
 }
 
-/* ==========================================
-   🎨 2. 컬러 피커 (작은 원형 물감 통 스타일)
-   ========================================== */
 .palette-row input[type="color"] {
   appearance: none;
-
-  /* 💡 가로폭을 채우지 않고 정원 형태로 만들기 위해 고정 크기 부여 */
   width: 2.6rem;
   height: 2.6rem;
-  margin: 0 auto; /* 행 안에서 가운데 정렬 */
+  margin: 0 auto;
 
   /* 살짝 찌그러진 작은 원 모양 */
   border-radius: 45% 55% 48% 52% / 52% 48% 55% 45%;
@@ -332,7 +329,9 @@ main {
   justify-content: center;
   align-items: center;
   z-index: 10;
-  transition: opacity 0.4s ease, visibility 0.4s ease;
+  transition:
+    opacity 0.4s ease,
+    visibility 0.4s ease;
   visibility: visible;
   opacity: 1;
 }
