@@ -218,7 +218,44 @@ function preserveCanvasResize() {
 }
 
 resizeCanvas();
-window.addEventListener("resize", preserveCanvasResize);
+
+let resizeTimeout = null;
+let resizeSpinner = null;
+
+function handleResizeWithDebounce() {
+  const loadingOverlay = document.querySelector("#loading-overlay");
+  const loadingText = loadingOverlay?.querySelector("p");
+  if (!resizeTimeout) {
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+    if (loadingOverlay) {
+      if (loadingText) loadingText.textContent = "Resizing canvas...";
+      loadingOverlay.classList.remove("hidden");
+      if (typeof drawSketchySpinner === "function" && !resizeSpinner) {
+        resizeSpinner = drawSketchySpinner();
+      }
+    }
+  }
+  canvasWidth = window.innerWidth;
+  canvasHeight = window.innerHeight;
+  canvas.style.width = `${canvasWidth}px`;
+  canvas.style.height = `${canvasHeight}px`;
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    logStatus("resizing complete");
+    preserveCanvasResize();
+    if (loadingOverlay) {
+      loadingOverlay.classList.add("hidden");
+    }
+    if (resizeSpinner) {
+      resizeSpinner.stop();
+      resizeSpinner = null;
+    }
+    resizeTimeout = null;
+  }, 250);
+}
+
+window.addEventListener("resize", handleResizeWithDebounce);
 
 colorInput.addEventListener("input", (event) => {
   ctx.strokeStyle = event.target.value;
