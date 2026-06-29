@@ -16,9 +16,9 @@ root.innerHTML = `
       <div class="palette-row">
         <label></label>
         <div class="mode-selector">
-          <button type="button" class="mode-btn active" data-mode="pencil" title="pencil" style="background: #555;"></button>
-          <button type="button" class="mode-btn" data-mode="crayon" title="crayon" style="background: #d35400;"></button>
-          <button type="button" class="mode-btn" data-mode="brush" title="brush" style="background: #2ecc71;"></button>
+          <button type="button" class="mode-btn active" data-mode="pencil" title="pencil"">✏️</button>
+          <button type="button" class="mode-btn" data-mode="crayon" title="crayon">🖍️</button>
+          <button type="button" class="mode-btn" data-mode="brush" title="brush">🖌️</button>
         </div>
       </div>
       <div class="palette-row">
