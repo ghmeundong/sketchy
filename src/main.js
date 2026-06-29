@@ -684,7 +684,7 @@ async function replayDrawing() {
   }
 
   replaying = false;
-  logStatus("재생 완료");
+  logStatus("replay complete");
   enableDrawingMode();
 }
 
@@ -696,7 +696,7 @@ async function loadInitialSketch() {
     data = await api.getSketch();
     remoteLoaded = true;
   } catch (error) {
-    console.warn("R2 로드 실패, 로컬 캐시를 시도합니다.", error);
+    console.warn("R2 load fail, trying local cache", error);
   }
 
   const vector = Array.isArray(data?.vector) ? data.vector : null;
@@ -729,18 +729,18 @@ async function loadInitialSketch() {
           img.onload = () => ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
         }
       }
-      console.log("R2에서 벡터 그림 로드 완료");
+      console.log("load vector from R2");
       return;
     }
 
     if (localStrokes) {
-      console.log("R2에 그림 없음 — 로컬 캐시 유지");
+      console.log("no vector in R2, using local cache");
       return;
     }
 
     strokes = [];
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    console.log("R2에 저장된 그림이 없습니다. 캔버스를 초기화했습니다.");
+    console.log("no vector at R2, resetting...");
     return;
   }
 
@@ -750,7 +750,7 @@ async function loadInitialSketch() {
     image.onload = () => {
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
-      console.log("로컬 저장소에서 이미지 복원 완료");
+      console.log("restored image at local");
     };
   }
 
@@ -759,7 +759,7 @@ async function loadInitialSketch() {
       const parsed = JSON.parse(localStrokes);
       if (Array.isArray(parsed) && parsed.length) {
         strokes = parsed;
-        console.log("로컬 저장소에서 벡터 복원 완료");
+        console.log("restored strokes at local");
         if (!localImage) {
           ctx.clearRect(0, 0, canvasWidth, canvasHeight);
           for (const event of strokes) {
@@ -804,9 +804,9 @@ async function saveSketch() {
       return ev;
     });
     await api.saveSketch(null, sanitized);
-    console.log("R2 벡터 저장 완료");
+    console.log("R2 storing complete");
   } catch (error) {
-    console.error("R2 벡터 저장 실패:", error);
+    console.error("R2 vector storing:", error);
   }
 }
 
@@ -855,13 +855,13 @@ async function initRealtime() {
 
     const { error } = await channel.subscribe();
     if (error) {
-      console.error("Supabase 리얼타임 연결 실패", error);
+      console.error("Supabase realtime connection failed", error);
       return;
     }
 
-    console.log("Supabase 리얼타임 연결됨");
+    console.log("Supabase realtime connected");
   } catch (error) {
-    console.error("Supabase 초기화 오류", error);
+    console.error("Supabase reset error", error);
   }
 }
 
@@ -942,7 +942,7 @@ async function initApp() {
     // 초기 모드 활성화 클릭 트리거
     document.querySelector(`[data-mode="${currentMode}"]`)?.click();
   } catch (err) {
-    console.error("초기화 중 오류 발생:", err);
+    console.error("error while resetting:", err);
   } finally {
     if (spinnerInstance) {
       spinnerInstance.stop();
@@ -963,7 +963,7 @@ window.resetSketchR2 = async (secret) => {
     if (response?.ok) {
       localStorage.removeItem("sketchy-canvas");
       localStorage.removeItem("sketchy-strokes");
-      logStatus("로컬 캐시가 지워졌습니다. 리셋 이벤트 브로드캐스트를 보냅니다.");
+      logStatus("local cache removed. send reset event broadcast.");
       if (channel) {
         channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
       }
