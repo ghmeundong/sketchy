@@ -3,7 +3,11 @@
 import "./style.css";
 import { api, API_BASE_URL } from "./services/api.js";
 import { supabase } from "./services/supabase.js";
-import { applyCanvasSize } from "./services/canvas-utils.js";
+import {
+  applyCanvasSize,
+  drawImagePreservingSize,
+  resolveSnapshotTargetSize,
+} from "./services/canvas-utils.js";
 import { normalizeSketchPayload } from "./services/sketch-state.js";
 import rough from "roughjs";
 
@@ -58,7 +62,32 @@ let offscreenRc = null;
 let currentMode = "pencil";
 let canvasWidth = 0;
 let canvasHeight = 0;
+let snapshotTargetSize = null;
 let drawing = false;
+
+function readSnapshotTargetSize() {
+  try {
+    const stored = localStorage.getItem("sketchy-snapshot-target-size");
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      width: Number(parsed.width) || 0,
+      height: Number(parsed.height) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistSnapshotTargetSize(size) {
+  try {
+    if (!size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
+    localStorage.setItem("sketchy-snapshot-target-size", JSON.stringify(size));
+  } catch {
+    // ignore
+  }
+}
 let lastPoint = null;
 let paletteDrag = null;
 let buttonDrag = null;
@@ -186,6 +215,8 @@ function resizeCanvas() {
   dpr = window.devicePixelRatio || 1;
   canvasWidth = window.innerWidth;
   canvasHeight = window.innerHeight;
+  snapshotTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
+  persistSnapshotTargetSize(snapshotTargetSize);
   const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
   ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -211,10 +242,18 @@ function drawCachedImage(imageData) {
   const img = new Image();
   img.onload = () => {
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+    drawImagePreservingSize(ctx, img, {
+      dpr,
+      cssWidth: img.naturalWidth,
+      cssHeight: img.naturalHeight,
+    });
     if (offscreenCtx) {
       offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-      offscreenCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+      drawImagePreservingSize(offscreenCtx, img, {
+        dpr,
+        cssWidth: img.naturalWidth,
+        cssHeight: img.naturalHeight,
+      });
     }
   };
   img.onerror = () => {
@@ -272,10 +311,19 @@ function preserveCanvasResize() {
         const img = new Image();
         img.src = event.imageData;
         img.onload = () => {
-          ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+          drawImagePreservingSize(ctx, img, {
+            dpr,
+            cssWidth: img.naturalWidth,
+            cssHeight: img.naturalHeight,
+          });
           if (offscreenCtx) {
             offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-            offscreenCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            drawImagePreservingSize(offscreenCtx, img, {
+              dpr,
+              cssWidth: img.naturalWidth,
+              cssHeight: img.naturalHeight,
+            });
           }
         };
       }
@@ -284,6 +332,8 @@ function preserveCanvasResize() {
 
   syncMainCanvasFromOffscreen();
 }
+
+snapshotTargetSize = readSnapshotTargetSize();
 
 // 초기 실행 시 캔버스 바인딩
 resizeCanvas();
@@ -767,7 +817,12 @@ async function replayDrawing() {
         img.src = event.imageData;
         await new Promise((resolve) => {
           img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            drawImagePreservingSize(ctx, img, {
+              dpr,
+              cssWidth: img.naturalWidth,
+              cssHeight: img.naturalHeight,
+            });
             resolve();
           };
           img.onerror = () => resolve();
@@ -880,10 +935,19 @@ async function loadInitialSketch() {
           const img = new Image();
           img.src = event.imageData;
           img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            drawImagePreservingSize(ctx, img, {
+              dpr,
+              cssWidth: img.naturalWidth,
+              cssHeight: img.naturalHeight,
+            });
             if (offscreenCtx) {
               offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-              offscreenCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+              drawImagePreservingSize(offscreenCtx, img, {
+                dpr,
+                cssWidth: img.naturalWidth,
+                cssHeight: img.naturalHeight,
+              });
             }
           };
         }
@@ -950,8 +1014,25 @@ async function loadInitialSketch() {
 
 async function saveSketch() {
   try {
-    const imageData =
-      offscreenCanvas?.toDataURL("image/webp", 0.8) || canvas.toDataURL("image/webp", 0.8);
+    const targetWidth = snapshotTargetSize?.width || canvasWidth;
+    const targetHeight = snapshotTargetSize?.height || canvasHeight;
+    const snapshotCanvas = document.createElement("canvas");
+    snapshotCanvas.width = Math.max(1, Math.round(targetWidth * dpr));
+    snapshotCanvas.height = Math.max(1, Math.round(targetHeight * dpr));
+    const snapshotCtx = snapshotCanvas.getContext("2d");
+
+    if (snapshotCtx) {
+      snapshotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      snapshotCtx.clearRect(0, 0, targetWidth, targetHeight);
+      if (offscreenCanvas) {
+        snapshotCtx.drawImage(offscreenCanvas, 0, 0, targetWidth, targetHeight);
+      } else {
+        snapshotCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+      }
+    }
+
+    const imageData = snapshotCanvas.toDataURL("image/webp", 0.8);
+    persistSnapshotTargetSize(snapshotTargetSize);
     setSnapshotCache(imageData);
     compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));

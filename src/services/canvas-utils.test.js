@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
-import { applyCanvasSize, resolveCanvasSize } from "./canvas-utils.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  applyCanvasSize,
+  drawImagePreservingSize,
+  resolveCanvasSize,
+  resolveSnapshotTargetSize,
+} from "./canvas-utils.js";
 
 describe("canvas sizing helpers", () => {
   it("resolves backing dimensions from css size and device pixel ratio", () => {
@@ -24,5 +29,22 @@ describe("canvas sizing helpers", () => {
     expect(canvas.style.height).toBe("240px");
     expect(result.backingWidth).toBe(480);
     expect(result.backingHeight).toBe(360);
+  });
+
+  it("draws images at their intrinsic logical size instead of stretching them to the canvas", () => {
+    const drawImage = vi.fn();
+    const ctx = { drawImage };
+    const image = { naturalWidth: 800, naturalHeight: 600, width: 800, height: 600 };
+
+    const result = drawImagePreservingSize(ctx, image, { dpr: 2 });
+
+    expect(drawImage).toHaveBeenCalledWith(image, 0, 0, 400, 300);
+    expect(result).toEqual({ width: 400, height: 300, x: 0, y: 0 });
+  });
+
+  it("keeps the largest previously seen canvas size as the snapshot target", () => {
+    const result = resolveSnapshotTargetSize(900, 600, { width: 1400, height: 900 });
+
+    expect(result).toEqual({ width: 1400, height: 900 });
   });
 });
