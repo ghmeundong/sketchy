@@ -7,7 +7,6 @@ import {
   applyCanvasSize,
   drawImagePreservingSize,
   resolveSnapshotTargetSize,
-  scalePoint,
   shouldApplyRemoteSnapshot,
 } from "./services/canvas-utils.js";
 import { normalizeSketchPayload } from "./services/sketch-state.js";
@@ -208,12 +207,38 @@ function resolveCollision(movingEl, otherEl, desiredX, desiredY) {
 }
 
 function ensureOffscreenCanvas() {
-  if (!offscreenCanvas) {
+  const targetSize = snapshotTargetSize ||
+    logicalCanvasSize || { width: canvasWidth, height: canvasHeight };
+  const backingWidth = Math.max(1, Math.round(targetSize.width * dpr));
+  const backingHeight = Math.max(1, Math.round(targetSize.height * dpr));
+
+  if (
+    !offscreenCanvas ||
+    offscreenCanvas.width !== backingWidth ||
+    offscreenCanvas.height !== backingHeight
+  ) {
     offscreenCanvas = document.createElement("canvas");
     offscreenCtx = offscreenCanvas.getContext("2d");
     offscreenRc = rough.canvas(offscreenCanvas);
   }
+
+  if (offscreenCanvas && offscreenCtx) {
+    applyCanvasSize(offscreenCanvas, targetSize.width, targetSize.height, dpr);
+    offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
   return offscreenCanvas;
+}
+
+function renderOffscreenCanvasToViewport() {
+  if (!offscreenCanvas || !ctx) return;
+  const logicalWidth = logicalCanvasSize?.width || offscreenCanvas.width / dpr;
+  const logicalHeight = logicalCanvasSize?.height || offscreenCanvas.height / dpr;
+  const offsetX = (canvasWidth - logicalWidth) / 2;
+  const offsetY = (canvasHeight - logicalHeight) / 2;
+
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  ctx.drawImage(offscreenCanvas, offsetX, offsetY, logicalWidth, logicalHeight);
 }
 
 function resizeCanvas() {
@@ -225,23 +250,20 @@ function resizeCanvas() {
   logicalCanvasSize = snapshotTargetSize;
   persistSnapshotTargetSize(snapshotTargetSize);
   remoteResizeInProgress = true;
+
   const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
   ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
   ensureOffscreenCanvas();
-  const offscreenMetrics = applyCanvasSize(offscreenCanvas, canvasWidth, canvasHeight, dpr);
-  offscreenCtx?.setTransform(offscreenMetrics.dpr, 0, 0, offscreenMetrics.dpr, 0, 0);
-  offscreenCtx?.clearRect(0, 0, canvasWidth, canvasHeight);
-  if (offscreenCanvas && offscreenCtx) {
-    ctx.drawImage(offscreenCanvas, 0, 0, canvasWidth, canvasHeight);
+  if (offscreenCtx) {
+    offscreenCtx.clearRect(0, 0, logicalCanvasSize.width, logicalCanvasSize.height);
   }
+  renderOffscreenCanvasToViewport();
 }
 
 function syncMainCanvasFromOffscreen() {
-  if (!offscreenCanvas || !ctx) return;
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  ctx.drawImage(offscreenCanvas, 0, 0, canvasWidth, canvasHeight);
+  renderOffscreenCanvasToViewport();
 }
 
 function drawCachedImage(imageData, options = {}) {
@@ -251,22 +273,18 @@ function drawCachedImage(imageData, options = {}) {
   img.onload = () => {
     const targetWidth = Number.isFinite(options.cssWidth) ? options.cssWidth : img.naturalWidth;
     const targetHeight = Number.isFinite(options.cssHeight) ? options.cssHeight : img.naturalHeight;
-    const renderWidth = Math.max(1, targetWidth);
-    const renderHeight = Math.max(1, targetHeight);
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-    drawImagePreservingSize(ctx, img, {
-      dpr,
-      cssWidth: renderWidth,
-      cssHeight: renderHeight,
-    });
-    if (offscreenCtx) {
-      offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-      drawImagePreservingSize(offscreenCtx, img, {
-        dpr,
-        cssWidth: renderWidth,
-        cssHeight: renderHeight,
-      });
-    }
+    const renderWidth = Math.max(1, Math.min(targetWidth, logicalCanvasSize?.width || targetWidth));
+    const renderHeight = Math.max(
+      1,
+      Math.min(targetHeight, logicalCanvasSize?.height || targetHeight)
+    );
+    if (!offscreenCtx || !logicalCanvasSize) return;
+
+    offscreenCtx.clearRect(0, 0, logicalCanvasSize.width, logicalCanvasSize.height);
+    const x = logicalCanvasSize.width / 2 - renderWidth / 2;
+    const y = logicalCanvasSize.height / 2 - renderHeight / 2;
+    offscreenCtx.drawImage(img, x, y, renderWidth, renderHeight);
+    renderOffscreenCanvasToViewport();
   };
   img.onerror = () => {
     console.warn("cached canvas image could not be restored");
@@ -439,15 +457,20 @@ function getCanvasPoint(event) {
   };
 
   if (logicalCanvasSize && logicalCanvasSize.width && logicalCanvasSize.height) {
-    const normalized = scalePoint(
-      point,
-      { width: canvasWidth, height: canvasHeight },
-      logicalCanvasSize
-    );
-    return normalized;
+    const logicalWidth = logicalCanvasSize.width;
+    const logicalHeight = logicalCanvasSize.height;
+    const offsetX = (canvasWidth - logicalWidth) / 2;
+    const offsetY = (canvasHeight - logicalHeight) / 2;
+    return {
+      x: point.x - offsetX - logicalWidth / 2,
+      y: point.y - offsetY - logicalHeight / 2,
+    };
   }
 
-  return point;
+  return {
+    x: point.x - canvasWidth / 2,
+    y: point.y - canvasHeight / 2,
+  };
 }
 
 document.querySelectorAll(".mode-btn").forEach((btn) => {
@@ -490,27 +513,45 @@ function drawLine({
   context = ctx,
   roughCanvas = rc,
 }) {
-  const resolvedStart =
-    logicalCanvasSize?.width && logicalCanvasSize?.height
-      ? scalePoint(start, logicalCanvasSize, { width: canvasWidth, height: canvasHeight })
-      : start;
-  const resolvedEnd =
-    logicalCanvasSize?.width && logicalCanvasSize?.height
-      ? scalePoint(end, logicalCanvasSize, { width: canvasWidth, height: canvasHeight })
-      : end;
+  const targetWidth = Number.isFinite(width) ? Math.max(1, width) : context.lineWidth;
+  const logicalWidth = logicalCanvasSize?.width || canvasWidth;
+  const logicalHeight = logicalCanvasSize?.height || canvasHeight;
+  const isViewportContext = context === ctx;
+  const viewportOffsetX = isViewportContext ? (canvasWidth - logicalWidth) / 2 : 0;
+  const viewportOffsetY = isViewportContext ? (canvasHeight - logicalHeight) / 2 : 0;
+  const logicalCenterX = logicalWidth / 2;
+  const logicalCenterY = logicalHeight / 2;
+  const resolvedStart = isViewportContext
+    ? {
+        x: viewportOffsetX + start.x + logicalCenterX,
+        y: viewportOffsetY + start.y + logicalCenterY,
+      }
+    : {
+        x: start.x + logicalCenterX,
+        y: start.y + logicalCenterY,
+      };
+  const resolvedEnd = isViewportContext
+    ? {
+        x: viewportOffsetX + end.x + logicalCenterX,
+        y: viewportOffsetY + end.y + logicalCenterY,
+      }
+    : {
+        x: end.x + logicalCenterX,
+        y: end.y + logicalCenterY,
+      };
   const dx = resolvedEnd.x - resolvedStart.x;
   const dy = resolvedEnd.y - resolvedStart.y;
   const distance = Math.hypot(dx, dy);
   context.save();
   const targetColor = color || context.strokeStyle;
-  const targetWidth = width || context.lineWidth;
+  const scaledWidth = Math.max(1, targetWidth);
 
   if (mode === "pencil") {
     context.globalAlpha = 0.15;
-    const step = Math.max(1.5, targetWidth * 0.4);
+    const step = Math.max(1.5, scaledWidth * 0.4);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      roughCanvas.circle(resolvedStart.x + dx * t, resolvedStart.y + dy * t, targetWidth, {
+      roughCanvas.circle(resolvedStart.x + dx * t, resolvedStart.y + dy * t, scaledWidth, {
         stroke: "none",
         fill: targetColor,
         fillStyle: "solid",
@@ -519,10 +560,10 @@ function drawLine({
     }
   } else if (mode === "crayon") {
     context.globalAlpha = 0.4;
-    const step = Math.max(1, targetWidth * 0.15);
+    const step = Math.max(1, scaledWidth * 0.15);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      roughCanvas.circle(resolvedStart.x + dx * t, resolvedStart.y + dy * t, targetWidth, {
+      roughCanvas.circle(resolvedStart.x + dx * t, resolvedStart.y + dy * t, scaledWidth, {
         stroke: "none",
         fill: targetColor,
         fillStyle: "solid",
@@ -534,7 +575,7 @@ function drawLine({
     context.lineCap = "round";
     context.lineJoin = "round";
     context.strokeStyle = targetColor;
-    context.lineWidth = targetWidth;
+    context.lineWidth = scaledWidth;
 
     context.beginPath();
     context.moveTo(resolvedStart.x, resolvedStart.y);
@@ -1071,10 +1112,9 @@ async function saveSketch() {
     if (snapshotCtx) {
       snapshotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       snapshotCtx.clearRect(0, 0, targetWidth, targetHeight);
-      if (offscreenCanvas) {
-        snapshotCtx.drawImage(offscreenCanvas, 0, 0, targetWidth, targetHeight);
-      } else {
-        snapshotCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+      const source = offscreenCanvas || canvas;
+      if (source) {
+        snapshotCtx.drawImage(source, 0, 0, targetWidth, targetHeight);
       }
     }
 
