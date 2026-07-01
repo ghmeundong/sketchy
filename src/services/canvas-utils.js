@@ -58,3 +58,9 @@ export function resolveSnapshotTargetSize(currentWidth, currentHeight, previousS
     height: Math.max(height, previousHeight),
   };
 }
+
+export function shouldApplyRemoteSnapshot(payload, hasLocalContent = false) {
+  if (!payload || typeof payload !== "object") return false;
+  if (typeof payload.snapshot !== "string" || !payload.snapshot.length) return false;
+  return !hasLocalContent;
+}

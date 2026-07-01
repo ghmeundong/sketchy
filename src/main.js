@@ -7,6 +7,7 @@ import {
   applyCanvasSize,
   drawImagePreservingSize,
   resolveSnapshotTargetSize,
+  shouldApplyRemoteSnapshot,
 } from "./services/canvas-utils.js";
 import { normalizeSketchPayload } from "./services/sketch-state.js";
 import rough from "roughjs";
@@ -64,6 +65,8 @@ let canvasWidth = 0;
 let canvasHeight = 0;
 let snapshotTargetSize = null;
 let drawing = false;
+let remoteResizeInProgress = false;
+let hasLocalBoardContent = false;
 
 function readSnapshotTargetSize() {
   try {
@@ -217,6 +220,7 @@ function resizeCanvas() {
   canvasHeight = window.innerHeight;
   snapshotTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
   persistSnapshotTargetSize(snapshotTargetSize);
+  remoteResizeInProgress = true;
   const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
   ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -236,23 +240,25 @@ function syncMainCanvasFromOffscreen() {
   ctx.drawImage(offscreenCanvas, 0, 0, canvasWidth, canvasHeight);
 }
 
-function drawCachedImage(imageData) {
+function drawCachedImage(imageData, options = {}) {
   if (!imageData) return false;
 
   const img = new Image();
   img.onload = () => {
+    const targetWidth = Number.isFinite(options.cssWidth) ? options.cssWidth : img.naturalWidth;
+    const targetHeight = Number.isFinite(options.cssHeight) ? options.cssHeight : img.naturalHeight;
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     drawImagePreservingSize(ctx, img, {
       dpr,
-      cssWidth: img.naturalWidth,
-      cssHeight: img.naturalHeight,
+      cssWidth: targetWidth,
+      cssHeight: targetHeight,
     });
     if (offscreenCtx) {
       offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       drawImagePreservingSize(offscreenCtx, img, {
         dpr,
-        cssWidth: img.naturalWidth,
-        cssHeight: img.naturalHeight,
+        cssWidth: targetWidth,
+        cssHeight: targetHeight,
       });
     }
   };
@@ -277,8 +283,16 @@ function preserveCanvasResize() {
   resizeCanvas();
 
   const cachedImage = localStorage.getItem("sketchy-canvas");
-  if (cachedImage && drawCachedImage(cachedImage)) {
-    return;
+  if (cachedImage) {
+    const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
+    if (
+      drawCachedImage(cachedImage, {
+        cssWidth: targetSize.width,
+        cssHeight: targetSize.height,
+      })
+    ) {
+      return;
+    }
   }
 
   // 2. 저장되어 있던 모든 선 데이터(strokes) 복원 드로잉
@@ -372,6 +386,7 @@ function handleResizeWithDebounce() {
 
     // 조절 완료 후 복원 드로잉 계산 수행
     preserveCanvasResize();
+    remoteResizeInProgress = false;
 
     // 오버레이 제거 및 스피너 정지
     if (loadingOverlay) {
@@ -882,7 +897,8 @@ async function loadInitialSketch() {
 
   const cachedImage = localStorage.getItem("sketchy-canvas");
   if (cachedImage) {
-    drawCachedImage(cachedImage);
+    const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
+    drawCachedImage(cachedImage, { cssWidth: targetSize.width, cssHeight: targetSize.height });
   }
 
   try {
@@ -899,7 +915,11 @@ async function loadInitialSketch() {
 
   if (remoteLoaded) {
     if (normalized.shouldRenderSnapshotFirst && normalized.snapshot) {
-      drawCachedImage(normalized.snapshot);
+      const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
+      drawCachedImage(normalized.snapshot, {
+        cssWidth: targetSize.width,
+        cssHeight: targetSize.height,
+      });
       console.log("rendered snapshot from R2 first");
     }
 
@@ -969,7 +989,8 @@ async function loadInitialSketch() {
   }
 
   if (localImage) {
-    drawCachedImage(localImage);
+    const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
+    drawCachedImage(localImage, { cssWidth: targetSize.width, cssHeight: targetSize.height });
     console.log("restored image at local");
   }
 
@@ -1033,6 +1054,7 @@ async function saveSketch() {
 
     const imageData = snapshotCanvas.toDataURL("image/webp", 0.8);
     persistSnapshotTargetSize(snapshotTargetSize);
+    hasLocalBoardContent = true;
     setSnapshotCache(imageData);
     compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
@@ -1100,8 +1122,12 @@ async function initRealtime() {
       if (typeof payload.v === "number" && payload.v >= remoteSyncVersion) {
         remoteSyncVersion = payload.v;
       }
-      if (typeof payload.snapshot === "string" && payload.snapshot.length) {
-        drawCachedImage(payload.snapshot);
+      if (shouldApplyRemoteSnapshot(payload, remoteResizeInProgress || hasLocalBoardContent)) {
+        const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
+        drawCachedImage(payload.snapshot, {
+          cssWidth: targetSize.width,
+          cssHeight: targetSize.height,
+        });
       }
     });
 

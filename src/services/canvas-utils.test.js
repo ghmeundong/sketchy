@@ -6,6 +6,7 @@ import {
   drawImagePreservingSize,
   resolveCanvasSize,
   resolveSnapshotTargetSize,
+  shouldApplyRemoteSnapshot,
 } from "./canvas-utils.js";
 
 describe("canvas sizing helpers", () => {
@@ -46,5 +47,12 @@ describe("canvas sizing helpers", () => {
     const result = resolveSnapshotTargetSize(900, 600, { width: 1400, height: 900 });
 
     expect(result).toEqual({ width: 1400, height: 900 });
+  });
+
+  it("ignores remote snapshots when the local board already has content", () => {
+    const payload = { snapshot: "data:image/webp;base64,abc" };
+
+    expect(shouldApplyRemoteSnapshot(payload, true)).toBe(false);
+    expect(shouldApplyRemoteSnapshot(payload, false)).toBe(true);
   });
 });
