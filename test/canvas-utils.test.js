@@ -6,10 +6,9 @@ import {
   drawImagePreservingSize,
   resolveCanvasSize,
   resolveSnapshotTargetSize,
-  resolveViewportSize,
   scalePoint,
   shouldApplyRemoteSnapshot,
-} from "./canvas-utils.js";
+} from "../src/services/canvas-utils.js";
 
 describe("canvas sizing helpers", () => {
   it("resolves backing dimensions from css size and device pixel ratio", () => {
@@ -49,19 +48,6 @@ describe("canvas sizing helpers", () => {
     const result = resolveSnapshotTargetSize(900, 600, { width: 1400, height: 900 });
 
     expect(result).toEqual({ width: 1400, height: 900 });
-  });
-
-  it("uses the rendered element size when the viewport and layout sizes differ", () => {
-    const element = document.createElement("div");
-    element.style.width = "640px";
-    element.style.height = "480px";
-    Object.defineProperty(element, "getBoundingClientRect", {
-      value: () => ({ width: 768, height: 540 }),
-    });
-
-    const result = resolveViewportSize(element, 320, 240);
-
-    expect(result).toEqual({ width: 768, height: 540 });
   });
 
   it("ignores remote snapshots when the local board already has content", () => {

@@ -7,6 +7,7 @@ import {
   applyCanvasSize,
   drawImagePreservingSize,
   resolveSnapshotTargetSize,
+  resolveViewportSize,
   shouldApplyRemoteSnapshot,
 } from "./services/canvas-utils.js";
 import { normalizeSketchPayload } from "./services/sketch-state.js";
@@ -243,8 +244,9 @@ function renderOffscreenCanvasToViewport() {
 
 function resizeCanvas() {
   dpr = window.devicePixelRatio || 1;
-  canvasWidth = window.innerWidth;
-  canvasHeight = window.innerHeight;
+  const viewport = resolveViewportSize(canvas, window.innerWidth, window.innerHeight);
+  canvasWidth = viewport.width;
+  canvasHeight = viewport.height;
   const nextTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
   snapshotTargetSize = nextTargetSize;
   logicalCanvasSize = snapshotTargetSize;
@@ -398,11 +400,9 @@ function handleResizeWithDebounce() {
     }
   }
 
-  // 조절 중 뼈대 레이아웃이 깨지지 않도록 스타일 크기는 동적 동기화
-  canvasWidth = window.innerWidth;
-  canvasHeight = window.innerHeight;
-  canvas.style.width = `${canvasWidth}px`;
-  canvas.style.height = `${canvasHeight}px`;
+  const viewport = resolveViewportSize(canvas, window.innerWidth, window.innerHeight);
+  canvasWidth = viewport.width;
+  canvasHeight = viewport.height;
 
   // 디바운스 타이머 갱신
   clearTimeout(resizeTimeout);

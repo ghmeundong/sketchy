@@ -18,6 +18,21 @@ export function applyCanvasSize(canvas, cssWidth, cssHeight, dpr = window.device
   return metrics;
 }
 
+export function resolveViewportSize(
+  element,
+  fallbackWidth = window.innerWidth || 1,
+  fallbackHeight = window.innerHeight || 1
+) {
+  const rect = element?.getBoundingClientRect?.();
+  const width = Number.isFinite(rect?.width) && rect.width > 0 ? rect.width : fallbackWidth;
+  const height = Number.isFinite(rect?.height) && rect.height > 0 ? rect.height : fallbackHeight;
+
+  return {
+    width: Math.max(1, Math.round(width)),
+    height: Math.max(1, Math.round(height)),
+  };
+}
+
 export function drawImagePreservingSize(context, image, options = {}) {
   const dpr = Number.isFinite(options.dpr) && options.dpr > 0 ? options.dpr : 1;
   const cssWidth = Number.isFinite(options.cssWidth)

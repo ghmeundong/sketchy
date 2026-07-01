@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from "vitest";
-import { normalizeSketchPayload } from "./sketch-state.js";
+import { normalizeSketchPayload } from "../src/services/sketch-state.js";
 
 describe("normalizeSketchPayload", () => {
   it("returns snapshot-first payload from a hybrid backend response", () => {
