@@ -52,11 +52,14 @@ export const api = {
     return fetchJson(url);
   },
 
-  saveSketch: async (_imageData, vector = null) => {
+  saveSketch: async (imageData = null, vector = null) => {
     const url = `${normalizedUrl}/api/sketch`;
     const body = {};
     if (Array.isArray(vector)) {
       body.vector = vector;
+    }
+    if (typeof imageData === "string" && imageData.length) {
+      body.snapshot = imageData;
     }
     // Retry transient failures a few times to improve reliability when saving to backend
     const maxAttempts = 3;

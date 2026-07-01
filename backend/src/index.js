@@ -33,7 +33,13 @@ async function fetchR2Sketch(env) {
   if (jsonObj) {
     try {
       const txt = await jsonObj.text();
-      result.vector = JSON.parse(txt);
+      const parsed = JSON.parse(txt);
+      if (parsed && typeof parsed === "object") {
+        result.vector = Array.isArray(parsed.vector) ? parsed.vector : null;
+        result.imageData = typeof parsed.snapshot === "string" ? parsed.snapshot : null;
+      } else {
+        result.vector = Array.isArray(parsed) ? parsed : null;
+      }
     } catch {
       result.vector = null;
     }
@@ -62,11 +68,14 @@ async function saveR2Sketch(env, sketchPayload) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
-  if (Array.isArray(sketchPayload.vector)) {
-    await env.SKETCHES_BUCKET.put(jsonKey, JSON.stringify(sketchPayload.vector), {
-      httpMetadata: { contentType: "application/json" },
-    });
-  }
+  const payload = {
+    vector: Array.isArray(sketchPayload.vector) ? sketchPayload.vector : null,
+    snapshot: typeof sketchPayload.snapshot === "string" ? sketchPayload.snapshot : null,
+  };
+
+  await env.SKETCHES_BUCKET.put(jsonKey, JSON.stringify(payload), {
+    httpMetadata: { contentType: "application/json" },
+  });
 
   return { ok: true };
 }
@@ -79,11 +88,14 @@ async function handleSketchRequest(request, env) {
 
   if (request.method === "POST") {
     const body = await request.json().catch(() => null);
-    if (!body || !Array.isArray(body.vector)) {
-      return errorResponse("Request body must include a vector array.", 400);
+    if (!body || (!Array.isArray(body.vector) && typeof body.snapshot !== "string")) {
+      return errorResponse("Request body must include a vector array or snapshot image.", 400);
     }
 
-    await saveR2Sketch(env, { vector: body.vector });
+    await saveR2Sketch(env, {
+      vector: body.vector,
+      snapshot: body.snapshot,
+    });
     return jsonResponse({ ok: true });
   }
 

@@ -3,6 +3,8 @@
 import "./style.css";
 import { api, API_BASE_URL } from "./services/api.js";
 import { supabase } from "./services/supabase.js";
+import { applyCanvasSize } from "./services/canvas-utils.js";
+import { normalizeSketchPayload } from "./services/sketch-state.js";
 import rough from "roughjs";
 
 const root = document.querySelector("main");
@@ -48,7 +50,10 @@ if (!canvas || !colorInput || !sizeRange || !replayButton || !palette) {
 
 const ctx = canvas.getContext("2d");
 const rc = rough.canvas(canvas);
-const dpr = window.devicePixelRatio || 1;
+let dpr = window.devicePixelRatio || 1;
+let offscreenCanvas = null;
+let offscreenCtx = null;
+let offscreenRc = null;
 
 let currentMode = "pencil";
 let canvasWidth = 0;
@@ -63,6 +68,7 @@ let currentStroke = null;
 let channel = null;
 let saveTimeout = null;
 let replaying = false;
+let remoteSyncVersion = 0;
 const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
 
 const MAX_STROKES = 100;
@@ -167,20 +173,74 @@ function resolveCollision(movingEl, otherEl, desiredX, desiredY) {
   return { x: adjustedX, y: adjustedY };
 }
 
+function ensureOffscreenCanvas() {
+  if (!offscreenCanvas) {
+    offscreenCanvas = document.createElement("canvas");
+    offscreenCtx = offscreenCanvas.getContext("2d");
+    offscreenRc = rough.canvas(offscreenCanvas);
+  }
+  return offscreenCanvas;
+}
+
 function resizeCanvas() {
+  dpr = window.devicePixelRatio || 1;
   canvasWidth = window.innerWidth;
   canvasHeight = window.innerHeight;
-  canvas.width = canvasWidth * dpr;
-  canvas.height = canvasHeight * dpr;
-  canvas.style.width = `${canvasWidth}px`;
-  canvas.style.height = `${canvasHeight}px`;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
+  ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+  ensureOffscreenCanvas();
+  const offscreenMetrics = applyCanvasSize(offscreenCanvas, canvasWidth, canvasHeight, dpr);
+  offscreenCtx?.setTransform(offscreenMetrics.dpr, 0, 0, offscreenMetrics.dpr, 0, 0);
+  offscreenCtx?.clearRect(0, 0, canvasWidth, canvasHeight);
+  if (offscreenCanvas && offscreenCtx) {
+    ctx.drawImage(offscreenCanvas, 0, 0, canvasWidth, canvasHeight);
+  }
+}
+
+function syncMainCanvasFromOffscreen() {
+  if (!offscreenCanvas || !ctx) return;
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  ctx.drawImage(offscreenCanvas, 0, 0, canvasWidth, canvasHeight);
+}
+
+function drawCachedImage(imageData) {
+  if (!imageData) return false;
+
+  const img = new Image();
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+    if (offscreenCtx) {
+      offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+      offscreenCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+    }
+  };
+  img.onerror = () => {
+    console.warn("cached canvas image could not be restored");
+  };
+  img.src = imageData;
+  return true;
+}
+
+function setSnapshotCache(imageData) {
+  if (typeof imageData !== "string" || !imageData.length) return;
+  try {
+    localStorage.setItem("sketchy-canvas", imageData);
+  } catch {
+    // ignore
+  }
 }
 
 function preserveCanvasResize() {
   // 1. 캔버스 해상도 및 매트릭스 리셋
   resizeCanvas();
+
+  const cachedImage = localStorage.getItem("sketchy-canvas");
+  if (cachedImage && drawCachedImage(cachedImage)) {
+    return;
+  }
 
   // 2. 저장되어 있던 모든 선 데이터(strokes) 복원 드로잉
   if (Array.isArray(strokes)) {
@@ -200,18 +260,29 @@ function preserveCanvasResize() {
               color,
               width,
               mode,
+              context: offscreenCtx || ctx,
+              roughCanvas: offscreenRc || rc,
             });
           }
         }
       } else if (event.type === "clear") {
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        offscreenCtx?.clearRect(0, 0, canvasWidth, canvasHeight);
       } else if (event.type === "snapshot" && typeof event.imageData === "string") {
         const img = new Image();
         img.src = event.imageData;
-        img.onload = () => ctx.drawImage(img, 0, 0);
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+          if (offscreenCtx) {
+            offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+            offscreenCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+          }
+        };
       }
     }
   }
+
+  syncMainCanvasFromOffscreen();
 }
 
 // 초기 실행 시 캔버스 바인딩
@@ -327,20 +398,28 @@ function updateCanvasCursor() {
   canvas.style.cursor = `url(${cursorUrl}) 2 ${cursorSize - 3}, auto`;
 }
 
-function drawLine({ start, end, color, width, mode = currentMode }) {
+function drawLine({
+  start,
+  end,
+  color,
+  width,
+  mode = currentMode,
+  context = ctx,
+  roughCanvas = rc,
+}) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.hypot(dx, dy);
-  ctx.save();
-  const targetColor = color || ctx.strokeStyle;
-  const targetWidth = width || ctx.lineWidth;
+  context.save();
+  const targetColor = color || context.strokeStyle;
+  const targetWidth = width || context.lineWidth;
 
   if (mode === "pencil") {
-    ctx.globalAlpha = 0.15;
+    context.globalAlpha = 0.15;
     const step = Math.max(1.5, targetWidth * 0.4);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      rc.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
+      roughCanvas.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
         stroke: "none",
         fill: targetColor,
         fillStyle: "solid",
@@ -348,11 +427,11 @@ function drawLine({ start, end, color, width, mode = currentMode }) {
       });
     }
   } else if (mode === "crayon") {
-    ctx.globalAlpha = 0.4;
+    context.globalAlpha = 0.4;
     const step = Math.max(1, targetWidth * 0.15);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      rc.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
+      roughCanvas.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
         stroke: "none",
         fill: targetColor,
         fillStyle: "solid",
@@ -360,23 +439,28 @@ function drawLine({ start, end, color, width, mode = currentMode }) {
       });
     }
   } else if (mode === "brush") {
-    ctx.globalAlpha = 1;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = targetColor;
-    ctx.lineWidth = targetWidth;
+    context.globalAlpha = 1;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = targetColor;
+    context.lineWidth = targetWidth;
 
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.stroke();
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
   }
-  ctx.restore();
+  context.restore();
 }
 
 function handleRemoteDraw(payload) {
   if (!payload || typeof payload !== "object") return;
   if (payload.i === CLIENT_ID) return;
+
+  if (typeof payload.v === "number") {
+    if (payload.v < remoteSyncVersion) return;
+    remoteSyncVersion = payload.v;
+  }
 
   const color = `rgb(${payload.c[0]}, ${payload.c[1]}, ${payload.c[2]})`;
   const width = Number(payload.w) || 1;
@@ -389,7 +473,20 @@ function handleRemoteDraw(payload) {
       color,
       width,
       mode,
+      context: ctx,
+      roughCanvas: rc,
     });
+    if (offscreenCtx && offscreenRc) {
+      drawLine({
+        start: payload.start,
+        end: payload.end,
+        color,
+        width,
+        mode,
+        context: offscreenCtx,
+        roughCanvas: offscreenRc,
+      });
+    }
   }
 }
 
@@ -507,13 +604,17 @@ function handlePointerMove(event) {
     width: Number(sizeRange.value),
     mode: currentMode,
   };
-  drawLine(segment);
+  drawLine({ ...segment, context: ctx, roughCanvas: rc });
+  if (offscreenCtx && offscreenRc) {
+    drawLine({ ...segment, context: offscreenCtx, roughCanvas: offscreenRc });
+  }
 
   if (currentStroke) {
     currentStroke.points.push(point);
   }
   if (channel) {
     const rawColor = ctx.strokeStyle.replace("#", "");
+    remoteSyncVersion += 1;
     channel.send({
       type: "broadcast",
       event: "draw_step",
@@ -528,6 +629,7 @@ function handlePointerMove(event) {
         w: Math.round(ctx.lineWidth),
         m: currentMode,
         i: CLIENT_ID,
+        v: remoteSyncVersion,
       },
     });
   }
@@ -549,6 +651,7 @@ async function handlePointerUp(event) {
     strokes.push(currentStroke);
 
     if (channel) {
+      remoteSyncVersion += 1;
       channel.send({
         type: "broadcast",
         event: "draw",
@@ -558,6 +661,7 @@ async function handlePointerUp(event) {
           w: currentStroke.w,
           m: currentStroke.m,
           i: CLIENT_ID,
+          v: remoteSyncVersion,
         },
       });
     }
@@ -653,6 +757,7 @@ async function replayDrawing() {
 
     if (event.type === "clear") {
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      offscreenCtx?.clearRect(0, 0, canvasWidth, canvasHeight);
       continue;
     }
 
@@ -681,7 +786,26 @@ async function replayDrawing() {
 
     if (Array.isArray(event.points) && event.points.length > 0) {
       for (let i = 0; i < event.points.length - 1; i++) {
-        drawLine({ start: event.points[i], end: event.points[i + 1], color, width, mode });
+        drawLine({
+          start: event.points[i],
+          end: event.points[i + 1],
+          color,
+          width,
+          mode,
+          context: ctx,
+          roughCanvas: rc,
+        });
+        if (offscreenCtx && offscreenRc) {
+          drawLine({
+            start: event.points[i],
+            end: event.points[i + 1],
+            color,
+            width,
+            mode,
+            context: offscreenCtx,
+            roughCanvas: offscreenRc,
+          });
+        }
         segmentsThisFrame += 1;
         if (segmentsThisFrame >= segmentsPerFrame) {
           segmentsThisFrame = 0;
@@ -701,6 +825,11 @@ async function loadInitialSketch() {
   let data = null;
   let remoteLoaded = false;
 
+  const cachedImage = localStorage.getItem("sketchy-canvas");
+  if (cachedImage) {
+    drawCachedImage(cachedImage);
+  }
+
   try {
     data = await api.getSketch();
     remoteLoaded = true;
@@ -708,11 +837,17 @@ async function loadInitialSketch() {
     console.warn("R2 load fail, trying local cache", error);
   }
 
-  const vector = Array.isArray(data?.vector) ? data.vector : null;
+  const normalized = normalizeSketchPayload(data);
+  const vector = normalized.vector;
   const localImage = localStorage.getItem("sketchy-canvas");
   const localStrokes = localStorage.getItem("sketchy-strokes");
 
   if (remoteLoaded) {
+    if (normalized.shouldRenderSnapshotFirst && normalized.snapshot) {
+      drawCachedImage(normalized.snapshot);
+      console.log("rendered snapshot from R2 first");
+    }
+
     if (Array.isArray(vector) && vector.length) {
       strokes = vector.slice();
       localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
@@ -727,17 +862,33 @@ async function loadInitialSketch() {
 
           if (Array.isArray(event.points) && event.points.length > 0) {
             for (let i = 0; i < event.points.length - 1; i++) {
-              drawLine({ start: event.points[i], end: event.points[i + 1], color, width, mode });
+              drawLine({
+                start: event.points[i],
+                end: event.points[i + 1],
+                color,
+                width,
+                mode,
+                context: offscreenCtx || ctx,
+                roughCanvas: offscreenRc || rc,
+              });
             }
           }
         } else if (event.type === "clear") {
           ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+          offscreenCtx?.clearRect(0, 0, canvasWidth, canvasHeight);
         } else if (event.type === "snapshot" && typeof event.imageData === "string") {
           const img = new Image();
           img.src = event.imageData;
-          img.onload = () => ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            if (offscreenCtx) {
+              offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+              offscreenCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            }
+          };
         }
       }
+      syncMainCanvasFromOffscreen();
       console.log("load vector from R2");
       return;
     }
@@ -754,13 +905,8 @@ async function loadInitialSketch() {
   }
 
   if (localImage) {
-    const image = new Image();
-    image.src = localImage;
-    image.onload = () => {
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
-      console.log("restored image at local");
-    };
+    drawCachedImage(localImage);
+    console.log("restored image at local");
   }
 
   if (localStrokes) {
@@ -804,15 +950,19 @@ async function loadInitialSketch() {
 
 async function saveSketch() {
   try {
-    const imageData = canvas.toDataURL("image/webp", 0.8);
-    localStorage.setItem("sketchy-canvas", imageData);
+    const imageData =
+      offscreenCanvas?.toDataURL("image/webp", 0.8) || canvas.toDataURL("image/webp", 0.8);
+    setSnapshotCache(imageData);
     compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
     const sanitized = strokes.map((ev) => {
       if (ev?.type === "snapshot") return { type: "snapshot" };
       return ev;
     });
-    await api.saveSketch(null, sanitized);
+    await api.saveSketch(imageData, sanitized);
+    if (channel) {
+      syncHostState();
+    }
     console.log("R2 storing complete");
   } catch (error) {
     console.error("R2 vector storing:", error);
@@ -824,6 +974,19 @@ function sendBeaconSave() {
   const payload = JSON.stringify({ vector: strokes });
   const blob = new Blob([payload], { type: "application/json;charset=UTF-8" });
   navigator.sendBeacon(`${API_BASE_URL}/api/sketch`, blob);
+}
+
+function syncHostState() {
+  if (!channel) return;
+  channel.send({
+    type: "broadcast",
+    event: "host_sync",
+    payload: {
+      i: CLIENT_ID,
+      v: remoteSyncVersion,
+      snapshot: offscreenCanvas?.toDataURL("image/webp", 0.8) || null,
+    },
+  });
 }
 
 async function initRealtime() {
@@ -851,6 +1014,16 @@ async function initRealtime() {
       handleRemoteDraw(payload);
     });
 
+    channel.on("broadcast", { event: "host_sync" }, ({ payload }) => {
+      if (!payload || payload.i === CLIENT_ID) return;
+      if (typeof payload.v === "number" && payload.v >= remoteSyncVersion) {
+        remoteSyncVersion = payload.v;
+      }
+      if (typeof payload.snapshot === "string" && payload.snapshot.length) {
+        drawCachedImage(payload.snapshot);
+      }
+    });
+
     channel.on("broadcast", { event: "reset" }, () => {
       logStatus("리셋 이벤트 수신, 로컬 캐시를 지우고 새로고침합니다.");
       try {
@@ -868,6 +1041,7 @@ async function initRealtime() {
       return;
     }
 
+    syncHostState();
     console.log("Supabase realtime connected");
   } catch (error) {
     console.error("Supabase reset error", error);
