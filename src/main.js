@@ -7,6 +7,7 @@ import {
   applyCanvasSize,
   drawImagePreservingSize,
   resolveSnapshotTargetSize,
+  scalePoint,
   shouldApplyRemoteSnapshot,
 } from "./services/canvas-utils.js";
 import { normalizeSketchPayload } from "./services/sketch-state.js";
@@ -64,6 +65,7 @@ let currentMode = "pencil";
 let canvasWidth = 0;
 let canvasHeight = 0;
 let snapshotTargetSize = null;
+let logicalCanvasSize = null;
 let drawing = false;
 let remoteResizeInProgress = false;
 let hasLocalBoardContent = false;
@@ -218,7 +220,9 @@ function resizeCanvas() {
   dpr = window.devicePixelRatio || 1;
   canvasWidth = window.innerWidth;
   canvasHeight = window.innerHeight;
-  snapshotTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
+  const nextTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
+  snapshotTargetSize = nextTargetSize;
+  logicalCanvasSize = snapshotTargetSize;
   persistSnapshotTargetSize(snapshotTargetSize);
   remoteResizeInProgress = true;
   const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
@@ -247,18 +251,20 @@ function drawCachedImage(imageData, options = {}) {
   img.onload = () => {
     const targetWidth = Number.isFinite(options.cssWidth) ? options.cssWidth : img.naturalWidth;
     const targetHeight = Number.isFinite(options.cssHeight) ? options.cssHeight : img.naturalHeight;
+    const renderWidth = Math.max(1, targetWidth);
+    const renderHeight = Math.max(1, targetHeight);
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     drawImagePreservingSize(ctx, img, {
       dpr,
-      cssWidth: targetWidth,
-      cssHeight: targetHeight,
+      cssWidth: renderWidth,
+      cssHeight: renderHeight,
     });
     if (offscreenCtx) {
       offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
       drawImagePreservingSize(offscreenCtx, img, {
         dpr,
-        cssWidth: targetWidth,
-        cssHeight: targetHeight,
+        cssWidth: renderWidth,
+        cssHeight: renderHeight,
       });
     }
   };
@@ -348,6 +354,7 @@ function preserveCanvasResize() {
 }
 
 snapshotTargetSize = readSnapshotTargetSize();
+logicalCanvasSize = snapshotTargetSize || { width: window.innerWidth, height: window.innerHeight };
 
 // 초기 실행 시 캔버스 바인딩
 resizeCanvas();
@@ -426,10 +433,21 @@ function getCanvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
   const clientX = event.touches ? event.touches[0].clientX : event.clientX;
   const clientY = event.touches ? event.touches[0].clientY : event.clientY;
-  return {
+  const point = {
     x: Math.min(Math.max(clientX - rect.left, 0), canvasWidth),
     y: Math.min(Math.max(clientY - rect.top, 0), canvasHeight),
   };
+
+  if (logicalCanvasSize && logicalCanvasSize.width && logicalCanvasSize.height) {
+    const normalized = scalePoint(
+      point,
+      { width: canvasWidth, height: canvasHeight },
+      logicalCanvasSize
+    );
+    return normalized;
+  }
+
+  return point;
 }
 
 document.querySelectorAll(".mode-btn").forEach((btn) => {
@@ -472,8 +490,16 @@ function drawLine({
   context = ctx,
   roughCanvas = rc,
 }) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
+  const resolvedStart =
+    logicalCanvasSize?.width && logicalCanvasSize?.height
+      ? scalePoint(start, logicalCanvasSize, { width: canvasWidth, height: canvasHeight })
+      : start;
+  const resolvedEnd =
+    logicalCanvasSize?.width && logicalCanvasSize?.height
+      ? scalePoint(end, logicalCanvasSize, { width: canvasWidth, height: canvasHeight })
+      : end;
+  const dx = resolvedEnd.x - resolvedStart.x;
+  const dy = resolvedEnd.y - resolvedStart.y;
   const distance = Math.hypot(dx, dy);
   context.save();
   const targetColor = color || context.strokeStyle;
@@ -484,7 +510,7 @@ function drawLine({
     const step = Math.max(1.5, targetWidth * 0.4);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      roughCanvas.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
+      roughCanvas.circle(resolvedStart.x + dx * t, resolvedStart.y + dy * t, targetWidth, {
         stroke: "none",
         fill: targetColor,
         fillStyle: "solid",
@@ -496,7 +522,7 @@ function drawLine({
     const step = Math.max(1, targetWidth * 0.15);
     for (let i = 0; i <= distance; i += step) {
       const t = distance === 0 ? 0 : i / distance;
-      roughCanvas.circle(start.x + dx * t, start.y + dy * t, targetWidth, {
+      roughCanvas.circle(resolvedStart.x + dx * t, resolvedStart.y + dy * t, targetWidth, {
         stroke: "none",
         fill: targetColor,
         fillStyle: "solid",
@@ -511,8 +537,8 @@ function drawLine({
     context.lineWidth = targetWidth;
 
     context.beginPath();
-    context.moveTo(start.x, start.y);
-    context.lineTo(end.x, end.y);
+    context.moveTo(resolvedStart.x, resolvedStart.y);
+    context.lineTo(resolvedEnd.x, resolvedEnd.y);
     context.stroke();
   }
   context.restore();

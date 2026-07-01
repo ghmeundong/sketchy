@@ -59,6 +59,20 @@ export function resolveSnapshotTargetSize(currentWidth, currentHeight, previousS
   };
 }
 
+export function scalePoint(point, fromSize, toSize) {
+  if (!point || typeof point !== "object") return point;
+
+  const fromWidth = Number.isFinite(fromSize?.width) ? Math.max(1, fromSize.width) : 1;
+  const fromHeight = Number.isFinite(fromSize?.height) ? Math.max(1, fromSize.height) : 1;
+  const toWidth = Number.isFinite(toSize?.width) ? Math.max(1, toSize.width) : 1;
+  const toHeight = Number.isFinite(toSize?.height) ? Math.max(1, toSize.height) : 1;
+
+  return {
+    x: (Number(point.x) / fromWidth) * toWidth,
+    y: (Number(point.y) / fromHeight) * toHeight,
+  };
+}
+
 export function shouldApplyRemoteSnapshot(payload, hasLocalContent = false) {
   if (!payload || typeof payload !== "object") return false;
   if (typeof payload.snapshot !== "string" || !payload.snapshot.length) return false;

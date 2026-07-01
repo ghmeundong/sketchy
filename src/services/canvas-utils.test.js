@@ -6,6 +6,7 @@ import {
   drawImagePreservingSize,
   resolveCanvasSize,
   resolveSnapshotTargetSize,
+  scalePoint,
   shouldApplyRemoteSnapshot,
 } from "./canvas-utils.js";
 
@@ -54,5 +55,15 @@ describe("canvas sizing helpers", () => {
 
     expect(shouldApplyRemoteSnapshot(payload, true)).toBe(false);
     expect(shouldApplyRemoteSnapshot(payload, false)).toBe(true);
+  });
+
+  it("scales points from the current viewport to a stable logical canvas size", () => {
+    const point = scalePoint(
+      { x: 400, y: 300 },
+      { width: 800, height: 600 },
+      { width: 1600, height: 1200 }
+    );
+
+    expect(point).toEqual({ x: 800, y: 600 });
   });
 });
