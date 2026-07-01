@@ -118,6 +118,16 @@ function logStatus(message) {
   console.log(message);
 }
 
+function clearSketchLocalState() {
+  try {
+    localStorage.removeItem("sketchy-canvas");
+    localStorage.removeItem("sketchy-strokes");
+    localStorage.removeItem("sketchy-snapshot-target-size");
+  } catch {
+    // ignore
+  }
+}
+
 function getRect(element) {
   const rect = element.getBoundingClientRect();
   return {
@@ -1199,12 +1209,7 @@ async function initRealtime() {
 
     channel.on("broadcast", { event: "reset" }, () => {
       logStatus("리셋 이벤트 수신, 로컬 캐시를 지우고 새로고침합니다.");
-      try {
-        localStorage.removeItem("sketchy-canvas");
-        localStorage.removeItem("sketchy-strokes");
-      } catch {
-        // ignore
-      }
+      clearSketchLocalState();
       window.location.reload();
     });
 
@@ -1309,21 +1314,23 @@ async function initApp() {
 initApp();
 
 window.resetSketchR2 = async (secret) => {
+  clearSketchLocalState();
+
   try {
     const response = await api.resetSketch(secret);
     console.log("resetSketchR2 response:", response);
-    if (response?.ok) {
-      localStorage.removeItem("sketchy-canvas");
-      localStorage.removeItem("sketchy-strokes");
-      logStatus("local cache removed. send reset event broadcast.");
-      if (channel) {
-        channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
-      }
-      window.location.reload();
+    logStatus("local cache removed. send reset event broadcast.");
+    if (channel) {
+      channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
     }
+    window.location.reload();
     return response;
   } catch (error) {
     console.error("resetSketchR2 failed:", error);
+    if (channel) {
+      channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
+    }
+    window.location.reload();
     throw error;
   }
 };

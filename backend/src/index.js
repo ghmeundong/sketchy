@@ -20,28 +20,62 @@ function errorResponse(message, status = 500) {
   return jsonResponse({ error: message }, status);
 }
 
+function getSketchObjectPrefix(sketchId) {
+  return `sketch/${sketchId}`;
+}
+
+function getSketchVectorKey(sketchId) {
+  return `${getSketchObjectPrefix(sketchId)}/vector.json`;
+}
+
+function getSketchSnapshotKey(sketchId) {
+  return `${getSketchObjectPrefix(sketchId)}/snapshot`;
+}
+
 async function fetchR2Sketch(env) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
   const result = { imageData: null, vector: null };
-  const jsonObj = await env.SKETCHES_BUCKET.get(jsonKey);
-  if (jsonObj) {
+  const bucket = env.SKETCHES_BUCKET;
+  const vectorKey = getSketchVectorKey(sketchId);
+  const snapshotKey = getSketchSnapshotKey(sketchId);
+
+  const vectorObj = await bucket.get(vectorKey);
+  if (vectorObj) {
     try {
-      const txt = await jsonObj.text();
+      const txt = await vectorObj.text();
       const parsed = JSON.parse(txt);
-      if (parsed && typeof parsed === "object") {
-        result.vector = Array.isArray(parsed.vector) ? parsed.vector : null;
-        result.imageData = typeof parsed.snapshot === "string" ? parsed.snapshot : null;
-      } else {
-        result.vector = Array.isArray(parsed) ? parsed : null;
-      }
+      result.vector = Array.isArray(parsed) ? parsed : null;
     } catch {
       result.vector = null;
+    }
+  }
+
+  const snapshotObj = await bucket.get(snapshotKey);
+  if (snapshotObj) {
+    try {
+      result.imageData = await snapshotObj.text();
+    } catch {
+      result.imageData = null;
+    }
+  }
+
+  if (!result.vector && !result.imageData) {
+    const legacyObj = await bucket.get(`${sketchId}.json`);
+    if (legacyObj) {
+      try {
+        const parsed = JSON.parse(await legacyObj.text());
+        if (parsed && typeof parsed === "object") {
+          result.vector = Array.isArray(parsed.vector) ? parsed.vector : null;
+          result.imageData = typeof parsed.snapshot === "string" ? parsed.snapshot : null;
+        }
+      } catch {
+        // ignore and fall back to empty state
+      }
     }
   }
 
@@ -50,32 +84,49 @@ async function fetchR2Sketch(env) {
 
 async function deleteR2Sketch(env) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
-  await env.SKETCHES_BUCKET.delete(jsonKey);
+  const prefix = getSketchObjectPrefix(sketchId);
+  const bucket = env.SKETCHES_BUCKET;
+  let cursor;
+
+  do {
+    const listResult = await bucket.list({ prefix, cursor });
+    for (const object of listResult.objects) {
+      await bucket.delete(object.key);
+    }
+    cursor = listResult.truncated ? listResult.cursor : undefined;
+  } while (cursor);
+
+  await bucket.delete(`${sketchId}.json`);
   return { ok: true };
 }
 
 async function saveR2Sketch(env, sketchPayload) {
   const sketchId = env?.SKETCH_DOCUMENT_ID || "shared";
-  const jsonKey = `${sketchId}.json`;
 
   if (!env?.SKETCHES_BUCKET) {
     throw new Error("R2 binding `SKETCHES_BUCKET` is not configured in the Worker environment.");
   }
 
-  const payload = {
-    vector: Array.isArray(sketchPayload.vector) ? sketchPayload.vector : null,
-    snapshot: typeof sketchPayload.snapshot === "string" ? sketchPayload.snapshot : null,
-  };
+  const bucket = env.SKETCHES_BUCKET;
+  const vector = Array.isArray(sketchPayload.vector) ? sketchPayload.vector : [];
+  const snapshot = typeof sketchPayload.snapshot === "string" ? sketchPayload.snapshot : null;
 
-  await env.SKETCHES_BUCKET.put(jsonKey, JSON.stringify(payload), {
+  await bucket.put(getSketchVectorKey(sketchId), JSON.stringify(vector), {
     httpMetadata: { contentType: "application/json" },
   });
+
+  if (snapshot) {
+    await bucket.put(getSketchSnapshotKey(sketchId), snapshot, {
+      httpMetadata: { contentType: "text/plain;charset=UTF-8" },
+    });
+  } else {
+    await bucket.delete(getSketchSnapshotKey(sketchId));
+  }
 
   return { ok: true };
 }
@@ -83,7 +134,7 @@ async function saveR2Sketch(env, sketchPayload) {
 async function handleSketchRequest(request, env) {
   if (request.method === "GET") {
     const doc = await fetchR2Sketch(env);
-    return jsonResponse({ imageData: null, vector: doc.vector || null });
+    return jsonResponse({ imageData: doc.imageData || null, vector: doc.vector || null });
   }
 
   if (request.method === "POST") {

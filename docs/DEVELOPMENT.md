@@ -75,6 +75,7 @@ npm run lint
 ```
 
 Runs:
+
 - ESLint for JavaScript code
 - Stylelint for CSS files
 
@@ -116,10 +117,10 @@ Husky automatically runs pre-commit and pre-push hooks:
 Check API connectivity:
 
 ```javascript
-fetch('/api/health')
-  .then(r => r.json())
-  .then(j => console.log('API:', j))
-  .catch(e => console.error('API error:', e));
+fetch("/api/health")
+  .then((r) => r.json())
+  .then((j) => console.log("API:", j))
+  .catch((e) => console.error("API error:", e));
 ```
 
 ### Worker Logs

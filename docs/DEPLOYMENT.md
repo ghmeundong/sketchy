@@ -16,6 +16,7 @@ npm run deploy
 ```
 
 This:
+
 1. Builds the frontend with `vite build`
 2. Deploys the `dist/` directory to GitHub Pages
 
@@ -67,6 +68,7 @@ npm run deploy
 ```
 
 This:
+
 1. Authenticates with Cloudflare
 2. Deploys the Worker to your account
 3. Binds to the R2 bucket

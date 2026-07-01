@@ -42,7 +42,7 @@ The backend is a Cloudflare Worker providing API endpoints and cloud storage int
   - Data synchronization endpoints
   - File upload/download from R2
 
-- **R2 Integration**: 
+- **R2 Integration**:
   - Stores sketch data as JSON files
   - Stores image snapshots
   - Supports concurrent access with CORS headers
