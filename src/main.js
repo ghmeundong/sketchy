@@ -1202,7 +1202,10 @@ async function saveSketch() {
 }
 
 function sendBeaconSave() {
+  // 💡 리셋되었거나 보드에 선 데이터가 아예 없으면 백엔드(R2)에 쓸데없이 빈 데이터를 덮어쓰지 않도록 차단합니다.
+  if (!strokes || strokes.length === 0) return;
   if (!navigator.sendBeacon) return;
+
   const payload = JSON.stringify({ vector: strokes });
   const blob = new Blob([payload], { type: "application/json;charset=UTF-8" });
   navigator.sendBeacon(`${API_BASE_URL}/api/sketch`, blob);
@@ -1367,21 +1370,32 @@ async function initApp() {
 initApp();
 
 window.resetSketchR2 = async (secret) => {
+  // 1. 메모리 데이터 즉시 초기화 (비콘 오작동 방지)
+  strokes = [];
+  currentStroke = null;
   clearSketchLocalState();
 
   try {
+    // 2. 원격 서버(R2) 데이터 삭제 API 완료될 때까지 확실하게 대기(await)
     const response = await api.resetSketch(secret);
     console.log("resetSketchR2 response:", response);
-    logStatus("local cache removed. send reset event broadcast.");
+    logStatus("원격 서버 및 로컬 캐시가 성공적으로 지워졌습니다. 리셋 이벤트를 전송합니다.");
+
+    // 3. 다른 클라이언트들에게 리셋 브로드캐스트 전송
     if (channel) {
-      channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
+      await channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
     }
+
+    // 4. 네트워크 패킷 전송을 위해 약간의 여유를 두고 새로고침
     setTimeout(() => {
       window.location.reload();
-    }, 500);
+    }, 300);
+
     return response;
   } catch (error) {
     console.error("resetSketchR2 failed:", error);
+
+    // 에러가 나더라도 강제 리셋 전송 후 새로고침 보장
     if (channel) {
       channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
     }
