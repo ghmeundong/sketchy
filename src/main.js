@@ -10,7 +10,12 @@ import {
   resolveViewportSize,
   shouldApplyRemoteSnapshot,
 } from "./services/canvas-utils.js";
-import { normalizeSketchPayload } from "./services/sketch-state.js";
+import {
+  clearSketchPersistedState,
+  markSketchReset,
+  normalizeSketchPayload,
+  shouldSkipSketchRestore,
+} from "./services/sketch-state.js";
 import rough from "roughjs";
 
 const root = document.querySelector("main");
@@ -119,13 +124,7 @@ function logStatus(message) {
 }
 
 function clearSketchLocalState() {
-  try {
-    localStorage.removeItem("sketchy-canvas");
-    localStorage.removeItem("sketchy-strokes");
-    localStorage.removeItem("sketchy-snapshot-target-size");
-  } catch {
-    // ignore
-  }
+  clearSketchPersistedState(localStorage);
 }
 
 function getRect(element) {
@@ -1012,6 +1011,14 @@ async function loadInitialSketch() {
   let data = null;
   let remoteLoaded = false;
 
+  if (shouldSkipSketchRestore(localStorage, sessionStorage)) {
+    strokes = [];
+    currentStroke = null;
+    clearSketchPersistedState(localStorage);
+    logStatus("리셋 후 이전 상태 복원을 건너뜁니다.");
+    return;
+  }
+
   const cachedImage = localStorage.getItem("sketchy-canvas");
   if (cachedImage) {
     const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
@@ -1314,6 +1321,8 @@ window.resetSketchR2 = async (secret) => {
   clearSketchLocalState();
 
   try {
+    markSketchReset(localStorage);
+
     // 2. 원격 서버(R2) 데이터 삭제 API 완료될 때까지 확실하게 대기(await)
     const response = await api.resetSketch(secret);
     console.log("resetSketchR2 response:", response);
