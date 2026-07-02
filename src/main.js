@@ -1323,14 +1323,18 @@ window.resetSketchR2 = async (secret) => {
     if (channel) {
       channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
     }
-    window.location.reload();
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
     return response;
   } catch (error) {
     console.error("resetSketchR2 failed:", error);
     if (channel) {
       channel.send({ type: "broadcast", event: "reset", payload: { t: Date.now() } });
     }
-    window.location.reload();
+    setTimeout(() => {
+      window.location.reload();
+    }, 500);
     throw error;
   }
 };
