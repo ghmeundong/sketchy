@@ -218,24 +218,44 @@ function resolveCollision(movingEl, otherEl, desiredX, desiredY) {
 }
 
 function ensureOffscreenCanvas() {
-  const targetSize = snapshotTargetSize ||
-    logicalCanvasSize || { width: canvasWidth, height: canvasHeight };
-  const backingWidth = Math.max(1, Math.round(targetSize.width * dpr));
-  const backingHeight = Math.max(1, Math.round(targetSize.height * dpr));
+  // 💡 윈도우 창, 스냅샷 사이즈, 논리 사이즈 중 무조건 '가장 큰 값'을 도화지 크기로 잡습니다.
+  const targetWidth = Math.max(
+    canvasWidth,
+    snapshotTargetSize?.width || 0,
+    logicalCanvasSize?.width || 0,
+    window.innerWidth
+  );
+  const targetHeight = Math.max(
+    canvasHeight,
+    snapshotTargetSize?.height || 0,
+    logicalCanvasSize?.height || 0,
+    window.innerHeight
+  );
 
+  const backingWidth = Math.max(1, Math.round(targetWidth * dpr));
+  const backingHeight = Math.max(1, Math.round(targetHeight * dpr));
+
+  // 💡 기존 캔버스가 없거나 크기가 바뀐 경우에만 정확히 새로 생성합니다.
   if (
     !offscreenCanvas ||
     offscreenCanvas.width !== backingWidth ||
     offscreenCanvas.height !== backingHeight
   ) {
     offscreenCanvas = document.createElement("canvas");
+    offscreenCanvas.width = backingWidth;
+    offscreenCanvas.height = backingHeight;
     offscreenCtx = offscreenCanvas.getContext("2d");
     offscreenRc = rough.canvas(offscreenCanvas);
   }
 
   if (offscreenCanvas && offscreenCtx) {
-    applyCanvasSize(offscreenCanvas, targetSize.width, targetSize.height, dpr);
+    // 💡 에러를 내던 targetSize.width 대신 확실히 검증된 targetWidth와 targetHeight를 주입합니다.
+    applyCanvasSize(offscreenCanvas, targetWidth, targetHeight, dpr);
     offscreenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 💡 화면이 커질 때 새로 연장된 공간이 검은색(빈 버퍼)이 되지 않도록 확실하게 흰색으로 덮어줍니다.
+    offscreenCtx.fillStyle = "#ffffff";
+    offscreenCtx.fillRect(0, 0, targetWidth, targetHeight);
   }
 
   return offscreenCanvas;
@@ -257,9 +277,16 @@ function resizeCanvas() {
   const viewport = resolveViewportSize(canvas, window.innerWidth, window.innerHeight);
   canvasWidth = viewport.width;
   canvasHeight = viewport.height;
+
   const nextTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
   snapshotTargetSize = nextTargetSize;
-  logicalCanvasSize = snapshotTargetSize;
+
+  // 💡 물리창 크기가 더 커졌다면 논리 크기도 그것에 맞춰 확장 유도
+  logicalCanvasSize = {
+    width: Math.max(canvasWidth, snapshotTargetSize?.width || 0),
+    height: Math.max(canvasHeight, snapshotTargetSize?.height || 0),
+  };
+
   persistSnapshotTargetSize(snapshotTargetSize);
   remoteResizeInProgress = true;
 
@@ -268,9 +295,6 @@ function resizeCanvas() {
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
   ensureOffscreenCanvas();
-  if (offscreenCtx) {
-    offscreenCtx.clearRect(0, 0, logicalCanvasSize.width, logicalCanvasSize.height);
-  }
   renderOffscreenCanvasToViewport();
 }
 
@@ -283,18 +307,26 @@ function drawCachedImage(imageData, options = {}) {
 
   const img = new Image();
   img.onload = () => {
-    const targetWidth = Number.isFinite(options.cssWidth) ? options.cssWidth : img.naturalWidth;
-    const targetHeight = Number.isFinite(options.cssHeight) ? options.cssHeight : img.naturalHeight;
-    const renderWidth = Math.max(1, Math.min(targetWidth, logicalCanvasSize?.width || targetWidth));
-    const renderHeight = Math.max(
-      1,
-      Math.min(targetHeight, logicalCanvasSize?.height || targetHeight)
-    );
-    if (!offscreenCtx || !logicalCanvasSize) return;
+    if (!offscreenCtx || !offscreenCanvas) return;
 
-    offscreenCtx.clearRect(0, 0, logicalCanvasSize.width, logicalCanvasSize.height);
-    const x = logicalCanvasSize.width / 2 - renderWidth / 2;
-    const y = logicalCanvasSize.height / 2 - renderHeight / 2;
+    const currentOffscreenLogicalWidth = offscreenCanvas.width / dpr;
+    const currentOffscreenLogicalHeight = offscreenCanvas.height / dpr;
+
+    // 전체 공간을 부드러운 흰색 바탕으로 초기화
+    offscreenCtx.fillStyle = "#ffffff";
+    offscreenCtx.fillRect(0, 0, currentOffscreenLogicalWidth, currentOffscreenLogicalHeight);
+
+    const renderWidth = Number.isFinite(options.cssWidth)
+      ? options.cssWidth
+      : img.naturalWidth / dpr;
+    const renderHeight = Number.isFinite(options.cssHeight)
+      ? options.cssHeight
+      : img.naturalHeight / dpr;
+
+    // 💡 화면이 아무리 커져도 기존에 작게 그렸던 그림이 정중앙 영점에 안전하게 안착합니다.
+    const x = (currentOffscreenLogicalWidth - renderWidth) / 2;
+    const y = (currentOffscreenLogicalHeight - renderHeight) / 2;
+
     offscreenCtx.drawImage(img, x, y, renderWidth, renderHeight);
     renderOffscreenCanvasToViewport();
   };
@@ -315,72 +347,54 @@ function setSnapshotCache(imageData) {
 }
 
 function preserveCanvasResize() {
-  // 1. 캔버스 해상도 및 매트릭스 리셋
-  resizeCanvas();
+  // 1. 메인 캔버스 해상도 및 매트릭스 리셋
+  const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
+  ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
+  // 2. 오프스크린(분신) 캔버스도 새 크기에 맞게 리셋
+  ensureOffscreenCanvas();
+
+  // 3. 💡 [핵심] 무거운 선 루프 대신, 저장된 최신 이미지 스냅샷 '딱 한 장'만 복원
   const cachedImage = localStorage.getItem("sketchy-canvas");
   if (cachedImage) {
     const targetSize = snapshotTargetSize || { width: canvasWidth, height: canvasHeight };
-    if (
-      drawCachedImage(cachedImage, {
-        cssWidth: targetSize.width,
-        cssHeight: targetSize.height,
-      })
-    ) {
-      return;
-    }
+
+    // 이미지가 로드되면 자동으로 offscreenCtx에 그려지고, 메인 캔버스로 동기화됩니다.
+    drawCachedImage(cachedImage, {
+      cssWidth: targetSize.width,
+      cssHeight: targetSize.height,
+    });
+
+    logStatus("스냅샷 이미지를 활용해 화면을 즉시 복원했습니다.");
+    return; // 💡 복원 성공 시 아래의 무거운 백업 루프를 타지 않고 즉시 종료!
   }
 
-  // 2. 저장되어 있던 모든 선 데이터(strokes) 복원 드로잉
-  if (Array.isArray(strokes)) {
+  // 4. 만약 스냅샷이 없는 극단적인 상황(첫 진입 등)에만 예외적으로 선 데이터 복원
+  if (Array.isArray(strokes) && strokes.length > 0) {
     for (const event of strokes) {
-      if (event.type === "stroke") {
+      if (event.type === "stroke" && Array.isArray(event.points)) {
         const color = Array.isArray(event.c)
           ? `rgb(${event.c[0]}, ${event.c[1]}, ${event.c[2]})`
-          : event.color || ctx.strokeStyle;
+          : event.color || "#111111";
         const width = Number(event.w ?? event.width) || 1;
         const mode = event.m || "pencil";
 
-        if (Array.isArray(event.points) && event.points.length > 0) {
-          for (let i = 0; i < event.points.length - 1; i++) {
-            drawLine({
-              start: event.points[i],
-              end: event.points[i + 1],
-              color,
-              width,
-              mode,
-              context: offscreenCtx || ctx,
-              roughCanvas: offscreenRc || rc,
-            });
-          }
-        }
-      } else if (event.type === "clear") {
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        offscreenCtx?.clearRect(0, 0, canvasWidth, canvasHeight);
-      } else if (event.type === "snapshot" && typeof event.imageData === "string") {
-        const img = new Image();
-        img.src = event.imageData;
-        img.onload = () => {
-          ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-          drawImagePreservingSize(ctx, img, {
-            dpr,
-            cssWidth: img.naturalWidth,
-            cssHeight: img.naturalHeight,
+        for (let i = 0; i < event.points.length - 1; i++) {
+          drawLine({
+            start: event.points[i],
+            end: event.points[i + 1],
+            color,
+            width,
+            mode,
+            context: offscreenCtx || ctx,
+            roughCanvas: offscreenRc || rc,
           });
-          if (offscreenCtx) {
-            offscreenCtx.clearRect(0, 0, canvasWidth, canvasHeight);
-            drawImagePreservingSize(offscreenCtx, img, {
-              dpr,
-              cssWidth: img.naturalWidth,
-              cssHeight: img.naturalHeight,
-            });
-          }
-        };
+        }
       }
     }
+    syncMainCanvasFromOffscreen();
   }
-
-  syncMainCanvasFromOffscreen();
 }
 
 snapshotTargetSize = readSnapshotTargetSize();
@@ -397,10 +411,7 @@ function handleResizeWithDebounce() {
   const loadingOverlay = document.querySelector("#loading-overlay");
   const loadingText = loadingOverlay?.querySelector("p");
 
-  // 크기 조절이 '시작'되는 시점에 최초 1회만 화면을 비우고 스피너 작동
   if (!resizeTimeout) {
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
     if (loadingOverlay) {
       if (loadingText) loadingText.textContent = "Resizing canvas...";
       loadingOverlay.classList.remove("hidden");
@@ -410,20 +421,39 @@ function handleResizeWithDebounce() {
     }
   }
 
-  const viewport = resolveViewportSize(canvas, window.innerWidth, window.innerHeight);
-  canvasWidth = viewport.width;
-  canvasHeight = viewport.height;
+  // 💡 리사이즈 도중에도 실시간으로 윈도우의 viewport 크기를 그대로 주입합니다.
+  dpr = window.devicePixelRatio || 1;
+  canvasWidth = window.innerWidth;
+  canvasHeight = window.innerHeight;
 
-  // 디바운스 타이머 갱신
+  const nextTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
+  snapshotTargetSize = nextTargetSize;
+
+  logicalCanvasSize = {
+    width: Math.max(canvasWidth, snapshotTargetSize?.width || 0),
+    height: Math.max(canvasHeight, snapshotTargetSize?.height || 0),
+  };
+
+  persistSnapshotTargetSize(snapshotTargetSize);
+  remoteResizeInProgress = true;
+
+  // 디바운스 도중에도 잘리지 않도록 해상도 업데이트
+  const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
+  ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
+  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+  if (offscreenCanvas) {
+    renderOffscreenCanvasToViewport();
+  }
+
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
     logStatus("resizing complete");
 
-    // 조절 완료 후 복원 드로잉 계산 수행
+    // 💡 디바운스가 끝나는 순간 늘어난 해상도를 픽스하고 그림을 복원합니다.
     preserveCanvasResize();
     remoteResizeInProgress = false;
 
-    // 오버레이 제거 및 스피너 정지
     if (loadingOverlay) {
       loadingOverlay.classList.add("hidden");
     }
@@ -432,7 +462,7 @@ function handleResizeWithDebounce() {
       resizeSpinner = null;
     }
     resizeTimeout = null;
-  }, 250);
+  }, 150);
 }
 
 window.addEventListener("resize", handleResizeWithDebounce);
@@ -1112,8 +1142,10 @@ async function loadInitialSketch() {
 
 async function saveSketch() {
   try {
-    const targetWidth = snapshotTargetSize?.width || canvasWidth;
-    const targetHeight = snapshotTargetSize?.height || canvasHeight;
+    // 💡 현재 확장된 캔버스 영역과 오프스크린 영역 중 최대 크기를 타겟 해상도로 잡습니다.
+    const targetWidth = Math.max(canvasWidth, offscreenCanvas ? offscreenCanvas.width / dpr : 0);
+    const targetHeight = Math.max(canvasHeight, offscreenCanvas ? offscreenCanvas.height / dpr : 0);
+
     const snapshotCanvas = document.createElement("canvas");
     snapshotCanvas.width = Math.max(1, Math.round(targetWidth * dpr));
     snapshotCanvas.height = Math.max(1, Math.round(targetHeight * dpr));
@@ -1121,19 +1153,31 @@ async function saveSketch() {
 
     if (snapshotCtx) {
       snapshotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      snapshotCtx.clearRect(0, 0, targetWidth, targetHeight);
+      snapshotCtx.fillStyle = "#ffffff";
+      snapshotCtx.fillRect(0, 0, targetWidth, targetHeight);
+
       const source = offscreenCanvas || canvas;
       if (source) {
-        snapshotCtx.drawImage(source, 0, 0, targetWidth, targetHeight);
+        // 중앙 정렬을 맞추어 안전하게 복사본을 렌더링 후 캡처
+        const srcLogicalWidth = source.width / dpr;
+        const srcLogicalHeight = source.height / dpr;
+        const dx = (targetWidth - srcLogicalWidth) / 2;
+        const dy = (targetHeight - srcLogicalHeight) / 2;
+        snapshotCtx.drawImage(source, dx, dy, srcLogicalWidth, srcLogicalHeight);
       }
     }
 
     const imageData = snapshotCanvas.toDataURL("image/webp", 0.8);
+
+    // 현재 커진 크기를 새로운 기준 스냅샷 사이즈로 인정해 줌
+    snapshotTargetSize = { width: targetWidth, height: targetHeight };
     persistSnapshotTargetSize(snapshotTargetSize);
+
     hasLocalBoardContent = true;
     setSnapshotCache(imageData);
     compactStrokes();
     localStorage.setItem("sketchy-strokes", JSON.stringify(strokes));
+
     const sanitized = strokes.map((ev) => {
       if (ev?.type === "snapshot") return { type: "snapshot" };
       return ev;

@@ -27,6 +27,17 @@ canvas {
   cursor: default;
 }
 
+html,
+body,
+main {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #fff; /* 💡 전체 기본 배경을 흰색으로 통일 */
+}
+
 .canvas-shell {
   position: relative;
   width: 100%;
