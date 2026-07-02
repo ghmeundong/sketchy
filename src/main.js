@@ -39,7 +39,7 @@ root.innerHTML = `
         <input id="size-range" type="range" min="1" max="8" value="4" />
       </div>
     </div>
-    <button id="replay-button" class="floating-play-button" type="button" aria-label="재생">
+    <button id="replay-button" class="floating-play-button" type="button" aria-label="Replay">
       <span class="play-icon">▶</span>
     </button>
     <div id="loading-overlay" class="loading-overlay">
@@ -120,8 +120,8 @@ const MODE_SETTINGS = {
   brush: { min: 2, max: 100, default: 25 },
 };
 
-function logStatus(message) {
-  console.log(message);
+function logStatus(message, category = "app") {
+  console.log(`[${category}] ${message}`);
 }
 
 function setReplayButtonDisabled(disabled) {
@@ -347,7 +347,7 @@ function drawCachedImage(imageData, options = {}) {
     renderOffscreenCanvasToViewport();
   };
   img.onerror = () => {
-    console.warn("cached canvas image could not be restored");
+    console.warn("[canvas] Cached canvas image could not be restored.");
   };
   img.src = imageData;
   return true;
@@ -382,7 +382,7 @@ function preserveCanvasResize() {
       cssHeight: targetSize.height,
     });
 
-    logStatus("스냅샷 이미지를 활용해 화면을 즉시 복원했습니다.");
+    logStatus("Snapshot restored from cache immediately.", "canvas");
     return; // 💡 복원 성공 시 아래의 무거운 백업 루프를 타지 않고 즉시 종료!
   }
 
@@ -463,7 +463,7 @@ function handleResizeWithDebounce() {
 
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
-    logStatus("resizing complete");
+    logStatus("Resize complete.", "canvas");
 
     // 💡 디바운스가 완전히 끝나는 순간 늘어난 해상도를 최종 픽스하고 그림을 복원합니다.
     preserveCanvasResize();
@@ -484,7 +484,7 @@ window.addEventListener("resize", handleResizeWithDebounce);
 
 colorInput.addEventListener("input", (event) => {
   ctx.strokeStyle = event.target.value;
-  logStatus(`color changed: ${event.target.value}`);
+  logStatus(`Color changed: ${event.target.value}`, "ui");
 });
 
 sizeRange.addEventListener("input", (event) => {
@@ -497,7 +497,7 @@ sizeRange.addEventListener("input", (event) => {
   }
 
   ctx.lineWidth = value;
-  logStatus(`[${currentMode}] brush radius changed: ${value}`);
+  logStatus(`[${currentMode}] Brush radius changed to ${value}.`, "ui");
 
   updateCanvasCursor();
 });
@@ -534,7 +534,7 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
     e.target.classList.add("active");
 
     currentMode = e.target.dataset.mode;
-    logStatus(`모드 변경: ${currentMode}`);
+    logStatus(`Mode changed: ${currentMode}`, "ui");
     const settings = MODE_SETTINGS[currentMode];
     if (settings) {
       sizeRange.min = settings.min;
@@ -542,7 +542,7 @@ document.querySelectorAll(".mode-btn").forEach((btn) => {
       sizeRange.value = settings.default;
 
       ctx.lineWidth = settings.default;
-      logStatus(`브러시 두께 자동 조절: ${settings.default}`);
+      logStatus(`Brush size auto-adjusted to ${settings.default}.`, "ui");
     }
     updateCanvasCursor();
   });
@@ -919,13 +919,13 @@ function handlePalettePointerUp() {
 async function replayDrawing() {
   if (replaying) return;
   if (!strokes.length) {
-    logStatus("재생할 기록이 없습니다.");
+    logStatus("No replay history available.", "replay");
     return;
   }
 
   disableDrawingMode();
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-  logStatus("재생 시작...");
+  logStatus("Replay started.", "replay");
 
   const replayStartTime = performance.now();
   const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
@@ -1009,7 +1009,7 @@ async function replayDrawing() {
   }
 
   replaying = false;
-  logStatus("replay complete");
+  logStatus("Replay complete.", "replay");
   enableDrawingMode();
 }
 
@@ -1024,7 +1024,7 @@ async function loadInitialSketch() {
     strokes = [];
     currentStroke = null;
     clearSketchPersistedState(localStorage);
-    logStatus("리셋 후 이전 상태 복원을 건너뜁니다.");
+    logStatus("Skipping previous state after reset.", "reset");
     isLoadingInitialSketch = false;
     setReplayButtonDisabled(false);
     return;
@@ -1040,7 +1040,7 @@ async function loadInitialSketch() {
     data = await api.getSketch();
     remoteLoaded = true;
   } catch (error) {
-    console.warn("R2 load fail, trying local cache", error);
+    console.warn("[api] R2 load failed; trying local cache.", error);
   } finally {
     isLoadingInitialSketch = false;
     setReplayButtonDisabled(false);
@@ -1065,7 +1065,7 @@ async function loadInitialSketch() {
         cssWidth: r2TargetSize.width,
         cssHeight: r2TargetSize.height,
       });
-      console.log("rendered snapshot from R2 first");
+      console.log("[canvas] Rendered snapshot from R2 first.");
     }
 
     if (Array.isArray(vector) && vector.length) {
@@ -1100,7 +1100,7 @@ async function loadInitialSketch() {
         }
       }
       syncMainCanvasFromOffscreen();
-      console.log("load vector from R2");
+      console.log("[canvas] Loaded vector data from R2.");
       return;
     }
     // ... 이하 생략 (기존 코드와 동일)
@@ -1154,9 +1154,9 @@ async function saveSketch() {
     if (channel) {
       syncHostState();
     }
-    console.log("R2 storing complete");
+    console.log("[api] R2 storage complete.");
   } catch (error) {
-    console.error("R2 vector storing:", error);
+    console.error("[api] Failed to store sketch data.", error);
   }
 }
 
@@ -1223,21 +1223,21 @@ async function initRealtime() {
     });
 
     channel.on("broadcast", { event: "reset" }, () => {
-      logStatus("리셋 이벤트 수신, 로컬 캐시를 지우고 새로고침합니다.");
+      logStatus("Reset event received. Clearing local cache and reloading.", "reset");
       clearSketchLocalState();
       window.location.reload();
     });
 
     const { error } = await channel.subscribe();
     if (error) {
-      console.error("Supabase realtime connection failed", error);
+      console.error("[supabase] Realtime connection failed.", error);
       return;
     }
 
     syncHostState();
-    console.log("Supabase realtime connected");
+    console.log("[supabase] Realtime connected.");
   } catch (error) {
-    console.error("Supabase reset error", error);
+    console.error("[supabase] Reset error.", error);
   }
 }
 
@@ -1315,7 +1315,7 @@ async function initApp() {
 
     document.querySelector(`[data-mode="${currentMode}"]`)?.click();
   } catch (err) {
-    console.error("error while resetting:", err);
+    console.error("[app] Failed during initialization.", err);
   } finally {
     if (spinnerInstance) {
       spinnerInstance.stop();
@@ -1339,8 +1339,8 @@ window.resetSketchR2 = async (secret) => {
 
     // 2. 원격 서버(R2) 데이터 삭제 API 완료될 때까지 확실하게 대기(await)
     const response = await api.resetSketch(secret);
-    console.log("resetSketchR2 response:", response);
-    logStatus("원격 서버 및 로컬 캐시가 성공적으로 지워졌습니다. 리셋 이벤트를 전송합니다.");
+    console.log("[reset] resetSketchR2 response:", response);
+    logStatus("Remote server and local cache cleared. Sending reset event.", "reset");
 
     // 3. 다른 클라이언트들에게 리셋 브로드캐스트 전송
     if (channel) {
@@ -1354,7 +1354,7 @@ window.resetSketchR2 = async (secret) => {
 
     return response;
   } catch (error) {
-    console.error("resetSketchR2 failed:", error);
+    console.error("[reset] resetSketchR2 failed.", error);
 
     // 에러가 나더라도 강제 리셋 전송 후 새로고침 보장
     if (channel) {

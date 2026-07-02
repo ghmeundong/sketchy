@@ -32,14 +32,14 @@ async function fetchJson(url, options) {
 
     if (!res.ok) {
       const errorText = await res.text();
-      console.error("API error:", url, res.status, res.statusText, errorText);
+      console.error("[api] Request failed:", url, res.status, res.statusText, errorText);
       throw new Error(`${res.status} ${res.statusText}: ${errorText}`);
     }
     return res.json();
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === "AbortError") {
-      console.error("API timeout:", url);
+      console.error("[api] Request timed out:", url);
       throw new Error(`요청 타임아웃: ${url}`, { cause: error });
     }
     throw error;
@@ -79,7 +79,7 @@ export const api = {
         attempt += 1;
         if (attempt >= maxAttempts) break;
         const backoff = 200 * Math.pow(2, attempt - 1);
-        console.warn(`saveSketch attempt ${attempt} failed, retrying in ${backoff}ms`, err);
+        console.warn(`[api] saveSketch attempt ${attempt} failed; retrying in ${backoff}ms.`, err);
         await new Promise((r) => setTimeout(r, backoff));
       }
     }

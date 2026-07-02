@@ -9,7 +9,9 @@ const isPlaceholder = (value) =>
 let supabaseClient;
 
 if (isPlaceholder(SUPABASE_URL) || isPlaceholder(SUPABASE_ANON_KEY)) {
-  console.warn("Supabase URL or anon key is invalid or placeholder; realtime sharing is disabled.");
+  console.warn(
+    "[supabase] URL or anon key is invalid or placeholder; realtime sharing is disabled."
+  );
   supabaseClient = {
     channel: () => ({
       on: () => {},
