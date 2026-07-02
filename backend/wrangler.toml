@@ -10,6 +10,7 @@ command = "npm install"
 
 [vars]
 SKETCH_RESET_TOKEN = "reset-force"
+SKETCH_DOCUMENT_ID = "shared"
 
 [triggers]
 # Add schedule triggers here if you need scheduled cleanup tasks.
