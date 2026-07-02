@@ -309,25 +309,34 @@ function drawCachedImage(imageData, options = {}) {
   img.onload = () => {
     if (!offscreenCtx || !offscreenCanvas) return;
 
+    // 1. 현재 오프스크린 캔버스의 전체 논리적 크기
     const currentOffscreenLogicalWidth = offscreenCanvas.width / dpr;
     const currentOffscreenLogicalHeight = offscreenCanvas.height / dpr;
 
-    // 전체 공간을 부드러운 흰색 바탕으로 초기화
+    // 전체 공간을 깨끗하게 흰색 바탕으로 초기화
     offscreenCtx.fillStyle = "#ffffff";
     offscreenCtx.fillRect(0, 0, currentOffscreenLogicalWidth, currentOffscreenLogicalHeight);
 
+    // 2. 💡 [핵심] 개발자도구 크기에 영향받지 않도록, 저장된 원래 타겟 사이즈 고정 사용
+    // options.cssWidth가 있으면 그것을 쓰고, 없으면 원래 이미지 크기를 기준으로 잡음
     const renderWidth = Number.isFinite(options.cssWidth)
       ? options.cssWidth
-      : img.naturalWidth / dpr;
+      : snapshotTargetSize?.width || img.naturalWidth / dpr;
     const renderHeight = Number.isFinite(options.cssHeight)
       ? options.cssHeight
-      : img.naturalHeight / dpr;
+      : snapshotTargetSize?.height || img.naturalHeight / dpr;
 
-    // 💡 화면이 아무리 커져도 기존에 작게 그렸던 그림이 정중앙 영점에 안전하게 안착합니다.
+    // 3. 늘어난 대형 도화지의 정확한 정중앙 좌표 계산 (비율 왜곡 방지)
     const x = (currentOffscreenLogicalWidth - renderWidth) / 2;
     const y = (currentOffscreenLogicalHeight - renderHeight) / 2;
 
+    // 깨짐 방지를 위해 부드러운 이미지 렌더링 옵션 활성화
+    offscreenCtx.imageSmoothingEnabled = true;
+    offscreenCtx.imageSmoothingQuality = "high";
+
     offscreenCtx.drawImage(img, x, y, renderWidth, renderHeight);
+
+    // 메인 캔버스로 전송
     renderOffscreenCanvasToViewport();
   };
   img.onerror = () => {
