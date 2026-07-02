@@ -317,14 +317,16 @@ function drawCachedImage(imageData, options = {}) {
     offscreenCtx.fillStyle = "#ffffff";
     offscreenCtx.fillRect(0, 0, currentOffscreenLogicalWidth, currentOffscreenLogicalHeight);
 
-    // 2. 💡 [핵심] 개발자도구 크기에 영향받지 않도록, 저장된 원래 타겟 사이즈 고정 사용
-    // options.cssWidth가 있으면 그것을 쓰고, 없으면 원래 이미지 크기를 기준으로 잡음
-    const renderWidth = Number.isFinite(options.cssWidth)
-      ? options.cssWidth
-      : snapshotTargetSize?.width || img.naturalWidth / dpr;
-    const renderHeight = Number.isFinite(options.cssHeight)
-      ? options.cssHeight
-      : snapshotTargetSize?.height || img.naturalHeight / dpr;
+    // 2. 💡 [핵심수정] 개발자도구 크기 변화에 영향받지 않도록, 저장된 원래 타겟 사이즈 고정 사용
+    // options에 유효한 값이 지정되어 있다면 그것을 사용하고, 없다면 스냅샷의 고유 크기를 강제 적용합니다.
+    const renderWidth =
+      Number.isFinite(options.cssWidth) && options.cssWidth > 0
+        ? options.cssWidth
+        : snapshotTargetSize?.width || img.naturalWidth / dpr;
+    const renderHeight =
+      Number.isFinite(options.cssHeight) && options.cssHeight > 0
+        ? options.cssHeight
+        : snapshotTargetSize?.height || img.naturalHeight / dpr;
 
     // 3. 늘어난 대형 도화지의 정확한 정중앙 좌표 계산 (비율 왜곡 방지)
     const x = (currentOffscreenLogicalWidth - renderWidth) / 2;
@@ -430,23 +432,22 @@ function handleResizeWithDebounce() {
     }
   }
 
-  // 💡 리사이즈 도중에도 실시간으로 윈도우의 viewport 크기를 그대로 주입합니다.
+  // 💡 리사이즈 도중에도 실시간으로 윈도우의 viewport 크기를 주입합니다.
   dpr = window.devicePixelRatio || 1;
   canvasWidth = window.innerWidth;
   canvasHeight = window.innerHeight;
 
-  const nextTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, snapshotTargetSize);
-  snapshotTargetSize = nextTargetSize;
+  // 💡 [핵심수정] 리사이즈 도중에 snapshotTargetSize를 바로 덮어쓰지 않고 기존 값을 유지 유도하거나 확장만 계산합니다.
+  if (!snapshotTargetSize) {
+    snapshotTargetSize = resolveSnapshotTargetSize(canvasWidth, canvasHeight, null);
+  }
 
   logicalCanvasSize = {
     width: Math.max(canvasWidth, snapshotTargetSize?.width || 0),
     height: Math.max(canvasHeight, snapshotTargetSize?.height || 0),
   };
 
-  persistSnapshotTargetSize(snapshotTargetSize);
-  remoteResizeInProgress = true;
-
-  // 디바운스 도중에도 잘리지 않도록 해상도 업데이트
+  // 디바운스 도중에도 잘리지 않도록 메인 해상도 업데이트 및 클리어
   const metrics = applyCanvasSize(canvas, canvasWidth, canvasHeight, dpr);
   ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -459,7 +460,7 @@ function handleResizeWithDebounce() {
   resizeTimeout = setTimeout(() => {
     logStatus("resizing complete");
 
-    // 💡 디바운스가 끝나는 순간 늘어난 해상도를 픽스하고 그림을 복원합니다.
+    // 💡 디바운스가 완전히 끝나는 순간 늘어난 해상도를 최종 픽스하고 그림을 복원합니다.
     preserveCanvasResize();
     remoteResizeInProgress = false;
 
