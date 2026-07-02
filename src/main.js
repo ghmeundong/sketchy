@@ -108,6 +108,7 @@ let channel = null;
 let saveTimeout = null;
 let replaying = false;
 let remoteSyncVersion = 0;
+let isLoadingInitialSketch = false;
 const CLIENT_ID = Math.floor(Math.random() * 0xffffffff);
 
 const MAX_STROKES = 100;
@@ -121,6 +122,11 @@ const MODE_SETTINGS = {
 
 function logStatus(message) {
   console.log(message);
+}
+
+function setReplayButtonDisabled(disabled) {
+  replayButton.disabled = disabled;
+  replayButton.classList.toggle("is-disabled", disabled);
 }
 
 function clearSketchLocalState() {
@@ -743,7 +749,7 @@ function disableDrawingMode() {
   canvas.style.pointerEvents = "none";
   colorInput.disabled = true;
   sizeRange.disabled = true;
-  replayButton.disabled = true;
+  setReplayButtonDisabled(true);
 }
 
 function enableDrawingMode() {
@@ -751,7 +757,7 @@ function enableDrawingMode() {
   canvas.style.pointerEvents = "auto";
   colorInput.disabled = false;
   sizeRange.disabled = false;
-  replayButton.disabled = false;
+  setReplayButtonDisabled(false);
 }
 
 function handlePointerDown(event) {
@@ -1011,11 +1017,16 @@ async function loadInitialSketch() {
   let data = null;
   let remoteLoaded = false;
 
+  isLoadingInitialSketch = true;
+  setReplayButtonDisabled(true);
+
   if (shouldSkipSketchRestore(localStorage, sessionStorage)) {
     strokes = [];
     currentStroke = null;
     clearSketchPersistedState(localStorage);
     logStatus("리셋 후 이전 상태 복원을 건너뜁니다.");
+    isLoadingInitialSketch = false;
+    setReplayButtonDisabled(false);
     return;
   }
 
@@ -1030,6 +1041,9 @@ async function loadInitialSketch() {
     remoteLoaded = true;
   } catch (error) {
     console.warn("R2 load fail, trying local cache", error);
+  } finally {
+    isLoadingInitialSketch = false;
+    setReplayButtonDisabled(false);
   }
 
   const normalized = normalizeSketchPayload(data);
